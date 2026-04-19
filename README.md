@@ -6,6 +6,14 @@
 A GUI utility to play and download sounds from [myinstants.com](https://www.myinstants.com/en/index/in/) made using python with least effort 💀. A great tool for s**tposters and content creators.
 
 
+# RiffPointer Improvements
+- Refreshed the app layout and reorganized the toolbar controls.
+- Removed the startup autoplay behavior.
+- Added batch download progress with skipping for already-downloaded files.
+- Added a `Download Next Page` action after page downloads complete.
+- Improved the empty search-results view with clearer messaging and search-term emphasis.
+- Added settings support for download folder selection and theme switching.
+
 # Screenshots
 ## Main Screen 
 ![SCREEM](https://i.imgur.com/gk1dYcf.png)
