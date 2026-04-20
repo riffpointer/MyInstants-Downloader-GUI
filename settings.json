@@ -1,4 +1,8 @@
 {
   "download_dir": "downloads",
-  "appearance_mode": "Dark"
+  "appearance_mode": "Light",
+  "hide_downloaded": false,
+  "server_region": "us",
+  "server_base_url": "https://www.myinstants.com",
+  "auto_download_next_page": true
 }

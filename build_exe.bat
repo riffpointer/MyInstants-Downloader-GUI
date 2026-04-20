@@ -14,18 +14,8 @@ python -m PyInstaller ^
     --noconfirm ^
     --windowed ^
     --name MyInstantsDownloader ^
-    --icon main.ico ^
-    --add-data "archive.png;." ^
-    --add-data "arrow-left.png;." ^
-    --add-data "arrow-right.png;." ^
-    --add-data "download.png;." ^
-    --add-data "flush.png;." ^
-    --add-data "gear-fill.png;." ^
-    --add-data "house.png;." ^
-    --add-data "main.ico;." ^
-    --add-data "on.mp3;." ^
-    --add-data "play-fill.png;." ^
-    --add-data "search.png;." ^
+    --icon "resources/main.ico" ^
+    --add-data "resources;resources" ^
     main.py
 
 if errorlevel 1 (
