@@ -1,12 +1,12 @@
 # MyInstants-Downloader
 ![BADGE](https://badgen.net/github/release/Shagnikpaul/MyInstants-Downloader-GUI)
-![B2](https://img.shields.io/github/downloads/Shagnikpaul/MyInstants-Downloader-GUI/total)
+![B2](https://img.shields.io/github/downloads/riffpointer/MyInstants-Downloader-GUI/total)
 <br>
 
 A GUI utility to play and download sounds from [myinstants.com](https://www.myinstants.com/en/index/in/) made using python with least effort 💀. A great tool for s**tposters and content creators.
 
 
-# RiffPointer Improvements
+# Improvements by RiffPointer
 - Refreshed the app layout and reorganized the toolbar controls.
 - Removed the startup autoplay behavior.
 - Added batch download progress with skipping for already-downloaded files.
@@ -16,16 +16,17 @@ A GUI utility to play and download sounds from [myinstants.com](https://www.myin
 
 # Screenshots
 ## Main Screen 
-![SCREEM](https://i.imgur.com/gk1dYcf.png)
+<img width="1366" height="728" alt="image" src="https://github.com/user-attachments/assets/0b55c19c-de55-4343-bae6-9ea76aa4cea1" />
+
 ## Search Function 
-![SCREEM](https://i.imgur.com/klNR5t3.png)
+<img width="1366" height="728" alt="image" src="https://github.com/user-attachments/assets/59ebe344-be06-440d-84a8-c006668144b6" />
 
 # How to run it ? (Currently only Windows supported.)
 ### PORTABLE .zip
-Go to [Releases Page](https://github.com/Shagnikpaul/MyInstants-Downloader/releases/tag/release), download the latest `MyInstants_Downloader.zip` then extract the zip
+Go to [Releases Page](https://github.com/riffpointer/MyInstants-Downloader-GUI/releases/), download the latest `MyInstants_Downloader.zip` then extract the zip
 wherever you want and execute the `main.exe` file in that directory.
 ### SETUP .exe
-Go to [Releases Page](https://github.com/Shagnikpaul/MyInstants-Downloader/releases/tag/release), download the `setup.exe` and then run the installer like any normal software installer of Windows.
+Go to [Releases Page](https://github.com/riffpointer/MyInstants-Downloader-GUI/releases/), download the `setup.exe` and then run the installer like any normal software installer of Windows.
 
 # How to use it ?
 # ⚠ IMPORTANT NOTE / WARNING
@@ -37,6 +38,7 @@ Click on the sound button to play that particular sound and download it by click
 # Downloads Location
 You can click on the <kbd>Open downloads folder</kbd> button to access the folder.All .mp3 files which you want to download by pressing the **download** button are saved in **downloads** folder present in the directory which has the `main.exe` file.
 ![SHOT](https://i.imgur.com/cuiyA9t.png)
+
 # Libraries Used.
 - Custom Tkinter for GUI
 - Beautiful Soup for web scraping
