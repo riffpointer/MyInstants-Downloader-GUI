@@ -23,7 +23,7 @@ A GUI utility to play and download sounds from [myinstants.com](https://www.myin
 
 # How to run it ? (Currently only Windows supported.)
 ### PORTABLE .zip
-Go to [Releases Page](https://github.com/riffpointer/MyInstants-Downloader/releases/tag/release), download the latest `MyInstants_Downloader.zip` then extract the zip
+Go to [Releases Page](https://github.com/riffpointer/MyInstants-Downloader-GUI/releases/tag/release), download the latest `MyInstants_Downloader.zip` then extract the zip
 wherever you want and execute the `main.exe` file in that directory.
 ### SETUP .exe
 Go to [Releases Page](https://github.com/riffpointer/MyInstants-Downloader-GUI/releases/tag/release), download the `setup.exe` and then run the installer like any normal software installer of Windows.
