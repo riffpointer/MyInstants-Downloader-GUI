@@ -1,12 +1,12 @@
 # MyInstants-Downloader
 ![BADGE](https://badgen.net/github/release/Shagnikpaul/MyInstants-Downloader-GUI)
-![B2](https://img.shields.io/github/downloads/Shagnikpaul/MyInstants-Downloader-GUI/total)
+![B2](https://img.shields.io/github/downloads/riffpointer/MyInstants-Downloader-GUI/total)
 <br>
 
 A GUI utility to play and download sounds from [myinstants.com](https://www.myinstants.com/en/index/in/) made using python with least effort 💀. A great tool for s**tposters and content creators.
 
 
-# RiffPointer Improvements
+# Improvements by RiffPointer
 - Refreshed the app layout and reorganized the toolbar controls.
 - Removed the startup autoplay behavior.
 - Added batch download progress with skipping for already-downloaded files.
@@ -23,10 +23,10 @@ A GUI utility to play and download sounds from [myinstants.com](https://www.myin
 
 # How to run it ? (Currently only Windows supported.)
 ### PORTABLE .zip
-Go to [Releases Page](https://github.com/Shagnikpaul/MyInstants-Downloader/releases/tag/release), download the latest `MyInstants_Downloader.zip` then extract the zip
+Go to [Releases Page](https://github.com/riffpointer/MyInstants-Downloader/releases/tag/release), download the latest `MyInstants_Downloader.zip` then extract the zip
 wherever you want and execute the `main.exe` file in that directory.
 ### SETUP .exe
-Go to [Releases Page](https://github.com/Shagnikpaul/MyInstants-Downloader/releases/tag/release), download the `setup.exe` and then run the installer like any normal software installer of Windows.
+Go to [Releases Page](https://github.com/riffpointer/MyInstants-Downloader-GUI/releases/tag/release), download the `setup.exe` and then run the installer like any normal software installer of Windows.
 
 # How to use it ?
 # ⚠ IMPORTANT NOTE / WARNING
