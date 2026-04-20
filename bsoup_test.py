@@ -3,7 +3,25 @@ import requests
 import re
 
 
-def searchq(query:str):
+DEFAULT_BASE_URL = "https://www.myinstants.com"
+DEFAULT_REGION = "us"
+
+
+def normalize_base_url(base_url: str) -> str:
+  cleaned = (base_url or DEFAULT_BASE_URL).strip().rstrip('/')
+  if not cleaned:
+    cleaned = DEFAULT_BASE_URL
+  if not re.match(r'^https?://', cleaned, re.IGNORECASE):
+    cleaned = f'https://{cleaned}'
+  return cleaned
+
+
+def normalize_region(region: str) -> str:
+  cleaned = (region or DEFAULT_REGION).strip().strip('/')
+  return cleaned or DEFAULT_REGION
+
+
+def searchq(query: str, base_url: str = DEFAULT_BASE_URL):
   headers = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET',
@@ -12,9 +30,11 @@ def searchq(query:str):
       'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0'
   }
   query = query.replace(' ','+')
-  u = f'https://www.myinstants.com/en/search/?name={query}'
-  content = requests.get(
-      url=u, headers=headers).content
+  base_url = normalize_base_url(base_url)
+  u = f'{base_url}/en/search/?name={query}'
+  response = requests.get(url=u, headers=headers, timeout=30)
+  response.raise_for_status()
+  content = response.content
   url_list = []
   soup = BeautifulSoup(content, 'html.parser')
   l = soup.find_all(class_="small-button")
@@ -25,13 +45,13 @@ def searchq(query:str):
                             "(.*)"+str(re.escape('sound')), k['title'])[0]
     o = u.split('\'')
     url_list.append(
-        {'url': f'https://www.myinstants.com{o[1]}', 'title': str(k['title'])})
+        {'url': f'{base_url}{o[1]}', 'title': str(k['title'])})
     c+=1 
     if c > 9:
       break   
   return url_list
 
-def getPage(page: str):
+def getPage(page: str, region: str = DEFAULT_REGION, base_url: str = DEFAULT_BASE_URL):
   headers = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET',
@@ -39,14 +59,17 @@ def getPage(page: str):
       'Access-Control-Max-Age': '3600',
       'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0'
   }
+  base_url = normalize_base_url(base_url)
+  region = normalize_region(region)
 
 # this 'headers' is required for spoofing the scraper like it is a legit browser
   if int(page) == 1:  
-    u = f'https://www.myinstants.com/en/index/us/?page={page}'
+    u = f'{base_url}/en/index/{region}/?page={page}'
   else:
-    u = f'https://www.myinstants.com/en/trending/us/?page={page}'
-  content = requests.get(
-      url=u, headers=headers).content
+    u = f'{base_url}/en/trending/{region}/?page={page}'
+  response = requests.get(url=u, headers=headers, timeout=30)
+  response.raise_for_status()
+  content = response.content
 
   url_list = []
   soup = BeautifulSoup(content, 'html.parser')
@@ -57,7 +80,7 @@ def getPage(page: str):
     k['title'] = k['title'].strip()
     o = u.split('\'')
     url_list.append(
-        {'url': f'https://www.myinstants.com{o[1]}', 'title': str(k['title'])})
+        {'url': f'{base_url}{o[1]}', 'title': str(k['title'])})
   return url_list
 
 

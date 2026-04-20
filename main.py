@@ -3,7 +3,7 @@ from time import perf_counter
 from PIL import Image, ImageOps
 from playsound import playsound
 import customtkinter
-from bsoup_test import getPage, searchq
+from bsoup_test import DEFAULT_BASE_URL, DEFAULT_REGION, getPage, normalize_base_url, normalize_region, searchq
 import requests
 import threading
 import os
@@ -20,6 +20,9 @@ APP_TITLE = "MyInstants Downloader and Player"
 APP_SETTINGS_FILE = Path("settings.json")
 DEFAULT_DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_CHUNK_SIZE = 4096
+VIRTUAL_ROW_HEIGHT = 56
+VIRTUAL_ROW_GAP = 10
+VIRTUAL_OVERSCAN = 4
 
 
 def ensure_directory(path: Path):
@@ -31,6 +34,8 @@ def load_settings() -> dict:
         "download_dir": str(DEFAULT_DOWNLOAD_DIR),
         "appearance_mode": "Dark",
         "hide_downloaded": True,
+        "server_region": DEFAULT_REGION,
+        "server_base_url": DEFAULT_BASE_URL,
     }
     if not APP_SETTINGS_FILE.exists():
         return default_settings
@@ -115,6 +120,148 @@ def themed_icon(path: str, size: tuple[int, int]) -> customtkinter.CTkImage:
     dark_rgb = ImageOps.invert(dark_icon.convert("RGB"))
     dark_icon = Image.merge("RGBA", (*dark_rgb.split(), dark_icon.getchannel("A")))
     return customtkinter.CTkImage(light_image=light_icon, dark_image=dark_icon, size=size)
+
+
+class VirtualizedList(customtkinter.CTkFrame):
+    def __init__(self, master, row_height: int = VIRTUAL_ROW_HEIGHT, row_gap: int = VIRTUAL_ROW_GAP, **kwargs):
+        super().__init__(master, **kwargs)
+        self.row_height = row_height
+        self.row_gap = row_gap
+        self.total_row_height = row_height + row_gap
+        self.items = []
+        self.row_factory = None
+        self.row_updater = None
+        self.row_widgets = {}
+        self.item_key = lambda item: id(item)
+        self.empty_widget = None
+        self.empty_window_id = None
+
+        self.canvas = tkinter.Canvas(self, highlightthickness=0, borderwidth=0, bg=self._apply_appearance_mode(self._fg_color))
+        self.scrollbar = customtkinter.CTkScrollbar(self, orientation="vertical", command=self._on_scrollbar)
+        self.canvas.configure(yscrollcommand=self._on_canvas_scroll)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+
+        self.canvas.bind("<Configure>", lambda _event: self.refresh_visible_rows())
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+
+    def destroy(self):
+        try:
+            self.canvas.unbind_all("<MouseWheel>")
+        except tkinter.TclError:
+            pass
+        return super().destroy()
+
+    def _on_mousewheel(self, event):
+        if not self.winfo_exists():
+            return
+        widget = self.winfo_containing(event.x_root, event.y_root)
+        current = widget
+        inside = False
+        while current is not None:
+            if current == self:
+                inside = True
+                break
+            current = getattr(current, "master", None)
+        if not inside:
+            return
+        self.canvas.yview_scroll(int(-event.delta / 120), "units")
+        self.refresh_visible_rows()
+
+    def _on_scrollbar(self, *args):
+        self.canvas.yview(*args)
+        self.refresh_visible_rows()
+
+    def _on_canvas_scroll(self, first, last):
+        self.scrollbar.set(first, last)
+        self.refresh_visible_rows()
+
+    def clear(self):
+        self.items = []
+        for window_id, row in self.row_widgets.values():
+            self.canvas.delete(window_id)
+            row.destroy()
+        self.row_widgets = {}
+        if self.empty_window_id is not None:
+            self.canvas.delete(self.empty_window_id)
+            self.empty_window_id = None
+        if self.empty_widget is not None:
+            self.empty_widget.destroy()
+            self.empty_widget = None
+        self.canvas.configure(scrollregion=(0, 0, 0, 0))
+
+    def set_empty_widget(self, widget):
+        self.clear()
+        self.empty_widget = widget
+        self.empty_window_id = self.canvas.create_window(0, 0, anchor="nw", window=widget)
+        self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), max(widget.winfo_reqheight() + 24, 100)))
+        self.canvas.itemconfigure(self.empty_window_id, width=max(self.canvas.winfo_width() - 20, 100))
+
+    def set_items(self, items, row_factory, row_updater=None, item_key=None):
+        self.clear()
+        self.items = list(items)
+        self.row_factory = row_factory
+        self.row_updater = row_updater
+        if item_key is not None:
+            self.item_key = item_key
+        height = len(self.items) * self.total_row_height
+        self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), height))
+        self.canvas.yview_moveto(0)
+        self.refresh_visible_rows()
+
+    def refresh_visible_rows(self):
+        if self.empty_window_id is not None:
+            self.canvas.itemconfigure(self.empty_window_id, width=max(self.canvas.winfo_width() - 20, 100))
+            self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), max(self.empty_widget.winfo_reqheight() + 24, 100)))
+            return
+        if not self.items or self.row_factory is None:
+            return
+        width = max(self.canvas.winfo_width() - 18, 100)
+        top = self.canvas.canvasy(0)
+        bottom = top + max(self.canvas.winfo_height(), 1)
+        start = max(int(top // self.total_row_height) - VIRTUAL_OVERSCAN, 0)
+        end = min(int(bottom // self.total_row_height) + VIRTUAL_OVERSCAN + 1, len(self.items))
+        visible_keys = set()
+
+        for index in range(start, end):
+            item = self.items[index]
+            key = self.item_key(item)
+            y = index * self.total_row_height
+            visible_keys.add(key)
+            if key in self.row_widgets:
+                window_id, row = self.row_widgets[key]
+                self.canvas.coords(window_id, 8, y + 5)
+                self.canvas.itemconfigure(window_id, width=width)
+                if self.row_updater is not None:
+                    self.row_updater(row, item, index)
+            else:
+                row = self.row_factory(self.canvas, item, index)
+                window_id = self.canvas.create_window(8, y + 5, anchor="nw", width=width, height=self.row_height, window=row)
+                self.row_widgets[key] = (window_id, row)
+
+        for key in list(self.row_widgets.keys()):
+            if key not in visible_keys:
+                window_id, row = self.row_widgets.pop(key)
+                self.canvas.delete(window_id)
+                row.destroy()
+
+
+class RowContextMenu:
+    def __init__(self, master):
+        self.menu = tkinter.Menu(master, tearoff=0)
+        self.actions = []
+
+    def set_actions(self, actions):
+        self.actions = list(actions)
+        self.menu.delete(0, "end")
+        for label, command in self.actions:
+            self.menu.add_command(label=label, command=command)
+
+    def popup(self, event):
+        try:
+            self.menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.menu.grab_release()
 
 
 class DownloadProgressWindow(customtkinter.CTkToplevel):
@@ -479,9 +626,10 @@ class DownloadProgressWindow(customtkinter.CTkToplevel):
 
 
 class SoundRow(customtkinter.CTkFrame):
-    def __init__(self, master, item, play_command, download_command, icon_image, play_icon, palette):
+    def __init__(self, master, item, play_command, download_command, icon_image, play_icon, palette, context_menu=None):
         super().__init__(master, fg_color=palette["row_bg"], corner_radius=12)
         self.palette = palette
+        self.context_menu = context_menu
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
         self.grid_columnconfigure(2, weight=0)
@@ -520,6 +668,15 @@ class SoundRow(customtkinter.CTkFrame):
             hover_color=palette["success_hover"],
         )
         self.download_button.grid(row=0, column=2, padx=(4, 10), pady=8)
+        self.bind_context_menu(self)
+        self.bind_context_menu(self.title_label)
+        self.bind_context_menu(play_button)
+        self.bind_context_menu(self.download_button)
+
+    def bind_context_menu(self, widget):
+        if self.context_menu is None:
+            return
+        widget.bind("<Button-3>", self.context_menu.popup, add="+")
 
     def set_downloading(self, is_downloading: bool):
         if is_downloading:
@@ -552,6 +709,77 @@ class SoundRow(customtkinter.CTkFrame):
             )
 
 
+class InventoryRow(customtkinter.CTkFrame):
+    def __init__(self, master, app_controller, file_path: Path, play_command, open_command, rename_command, delete_command, context_menu, palette):
+        super().__init__(master, fg_color=palette["row_bg"], corner_radius=12)
+        self.app_controller = app_controller
+        self.palette = palette
+        self.context_menu = context_menu
+        self.grid_columnconfigure(0, weight=1)
+
+        self.file_label = customtkinter.CTkLabel(
+            self,
+            text=file_path.stem,
+            anchor="w",
+            justify="left",
+            wraplength=500,
+            font=customtkinter.CTkFont(family="Segoe UI", size=16, weight="bold"),
+        )
+        self.file_label.grid(row=0, column=0, sticky="ew", padx=(12, 8), pady=10)
+
+        self.play_button = customtkinter.CTkButton(
+            self,
+            text="Play",
+            width=90,
+            image=self.app_controller.play_icon,
+            compound="left",
+            command=play_command,
+            fg_color=palette["accent"],
+            hover_color=palette["accent_hover"],
+            text_color=palette["text_primary"],
+        )
+        self.play_button.grid(row=0, column=1, padx=4, pady=8)
+
+        self.open_button = customtkinter.CTkButton(
+            self,
+            text="Open",
+            width=90,
+            command=open_command,
+            image=self.app_controller.folder_open_icon,
+            compound="left",
+            fg_color=palette["success"],
+            hover_color=palette["success_hover"],
+        )
+        self.open_button.grid(row=0, column=2, padx=4, pady=8)
+
+        self.rename_button = customtkinter.CTkButton(
+            self,
+            text="Rename",
+            width=90,
+            command=rename_command,
+            image=self.app_controller.rename_icon,
+            compound="left",
+            fg_color=palette["toolbar_btn"],
+            hover_color=palette["toolbar_hover"],
+            text_color=palette["text_primary"],
+        )
+        self.rename_button.grid(row=0, column=3, padx=4, pady=8)
+
+        self.delete_button = customtkinter.CTkButton(
+            self,
+            text="Delete",
+            width=90,
+            command=delete_command,
+            image=self.app_controller.delete_icon,
+            compound="left",
+            fg_color=palette["danger"],
+            hover_color=palette["danger_hover"],
+        )
+        self.delete_button.grid(row=0, column=4, padx=(4, 10), pady=8)
+
+        for widget in (self, self.file_label, self.play_button, self.open_button, self.rename_button, self.delete_button):
+            widget.bind("<Button-3>", self.context_menu.popup, add="+")
+
 class SettingsWindow(customtkinter.CTkToplevel):
     def __init__(self, app):
         super().__init__(app.app)
@@ -567,6 +795,9 @@ class SettingsWindow(customtkinter.CTkToplevel):
         self.download_dir_var = tkinter.StringVar(value=str(app.download_dir.resolve()))
         self.appearance_var = tkinter.StringVar(value=app.settings.get("appearance_mode", "Dark"))
         self.hide_downloaded_var = tkinter.BooleanVar(value=app.settings.get("hide_downloaded", True))
+        self.server_choice_var = tkinter.StringVar(value=self.get_server_choice())
+        self.server_custom_region_var = tkinter.StringVar(value=app.server_region if app.server_region not in {"us", "in"} else "")
+        self.server_base_url_var = tkinter.StringVar(value=app.server_base_url)
 
         container = customtkinter.CTkFrame(self, corner_radius=16, fg_color=palette["dialog_bg"])
         container.pack(fill="both", expand=True, padx=14, pady=14)
@@ -638,6 +869,51 @@ class SettingsWindow(customtkinter.CTkToplevel):
         )
         filter_switch.pack(side="left")
 
+        server_row = customtkinter.CTkFrame(container, fg_color="transparent")
+        server_row.pack(fill="x", padx=14, pady=(0, 10))
+
+        server_label = customtkinter.CTkLabel(server_row, text="Server", width=130, anchor="w")
+        server_label.pack(side="left")
+
+        server_menu = customtkinter.CTkOptionMenu(
+            server_row,
+            values=["US", "IN", "Custom"],
+            variable=self.server_choice_var,
+            width=180,
+            command=lambda _value: self.update_server_fields(),
+        )
+        server_menu.pack(side="left")
+
+        custom_region_row = customtkinter.CTkFrame(container, fg_color="transparent")
+        custom_region_row.pack(fill="x", padx=14, pady=(0, 10))
+
+        self.custom_region_label = customtkinter.CTkLabel(custom_region_row, text="Custom Region", width=130, anchor="w")
+        self.custom_region_label.pack(side="left")
+
+        self.custom_region_entry = customtkinter.CTkEntry(
+            custom_region_row,
+            textvariable=self.server_custom_region_var,
+            width=180,
+            height=36,
+            placeholder_text="us, in, etc.",
+        )
+        self.custom_region_entry.pack(side="left")
+
+        base_url_row = customtkinter.CTkFrame(container, fg_color="transparent")
+        base_url_row.pack(fill="x", padx=14, pady=(0, 14))
+
+        base_url_label = customtkinter.CTkLabel(base_url_row, text="Base URL", width=130, anchor="w")
+        base_url_label.pack(side="left")
+
+        base_url_entry = customtkinter.CTkEntry(
+            base_url_row,
+            textvariable=self.server_base_url_var,
+            width=340,
+            height=36,
+            placeholder_text="https://www.myinstants.com",
+        )
+        base_url_entry.pack(side="left")
+
         buttons = customtkinter.CTkFrame(container, fg_color="transparent")
         buttons.pack(fill="x", padx=14, pady=(6, 14))
 
@@ -660,6 +936,20 @@ class SettingsWindow(customtkinter.CTkToplevel):
             hover_color=palette["toolbar_hover"],
         )
         cancel_button.pack(side="right", padx=(0, 8))
+        self.update_server_fields()
+
+    def get_server_choice(self) -> str:
+        region = self.app_controller.server_region.lower()
+        if region == "us":
+            return "US"
+        if region == "in":
+            return "IN"
+        return "Custom"
+
+    def update_server_fields(self):
+        is_custom = self.server_choice_var.get() == "Custom"
+        self.custom_region_entry.configure(state="normal" if is_custom else "disabled")
+        self.custom_region_label.configure(text_color=current_palette()["text_primary"] if is_custom else current_palette()["text_muted"])
 
     def browse_folder(self):
         selected = filedialog.askdirectory(initialdir=self.download_dir_var.get() or os.getcwd())
@@ -668,15 +958,38 @@ class SettingsWindow(customtkinter.CTkToplevel):
 
     def save(self):
         selected_dir = Path(self.download_dir_var.get()).expanduser()
+        server_choice = self.server_choice_var.get()
+        custom_region = self.server_custom_region_var.get().strip()
+        if server_choice == "US":
+            region = "us"
+        elif server_choice == "IN":
+            region = "in"
+        else:
+            region = custom_region
+        try:
+            normalized_region = normalize_region(region)
+            normalized_base_url = normalize_base_url(self.server_base_url_var.get())
+        except Exception as exc:
+            messagebox.showerror("Settings Error", f"Invalid server configuration: {exc}", parent=self)
+            return
+        if server_choice == "Custom" and not custom_region:
+            messagebox.showerror("Settings Error", "Enter a custom region code before saving.", parent=self)
+            return
         ensure_directory(selected_dir)
         self.app_controller.settings["download_dir"] = str(selected_dir)
         self.app_controller.settings["appearance_mode"] = self.appearance_var.get()
         self.app_controller.settings["hide_downloaded"] = self.hide_downloaded_var.get()
+        self.app_controller.settings["server_region"] = normalized_region
+        self.app_controller.settings["server_base_url"] = normalized_base_url
         save_settings(self.app_controller.settings)
         self.app_controller.download_dir = selected_dir
         self.app_controller.hide_downloaded = self.hide_downloaded_var.get()
+        self.app_controller.server_region = normalized_region
+        self.app_controller.server_base_url = normalized_base_url
+        self.app_controller.prefetched_pages.clear()
+        self.app_controller.page_prefetching.clear()
         self.app_controller.apply_appearance_mode(self.appearance_var.get(), persist=False)
-        self.app_controller.set_status(f"Downloads folder set to {selected_dir}")
+        self.app_controller.set_status(f"Downloads folder set to {selected_dir} | Server {normalized_region.upper()}")
         self.close()
 
     def close(self):
@@ -689,8 +1002,7 @@ class InventoryWindow(customtkinter.CTkToplevel):
         super().__init__(app.app)
         self.app_controller = app
         self.refresh_token = 0
-        self.render_after_id = None
-        self.loading_label = None
+        self.inventory_files = []
         palette = current_palette()
         self.title("Inventory")
         self.geometry("760x520")
@@ -744,15 +1056,12 @@ class InventoryWindow(customtkinter.CTkToplevel):
         )
         open_folder_button.pack(side="left", padx=(8, 0))
 
-        self.list_frame = customtkinter.CTkScrollableFrame(
+        self.list_frame = VirtualizedList(
             container,
-            corner_radius=14,
             fg_color=palette["panel_bg"],
-            scrollbar_button_color=palette["toolbar_btn"],
-            scrollbar_button_hover_color=palette["toolbar_hover"],
+            corner_radius=14,
         )
         self.list_frame.pack(fill="both", expand=True, padx=14, pady=(0, 14))
-        self.list_frame.grid_columnconfigure(0, weight=1)
 
         self.refresh_inventory()
 
@@ -764,124 +1073,95 @@ class InventoryWindow(customtkinter.CTkToplevel):
             return
 
     def _clear_rows(self):
-        if self.render_after_id is not None:
-            try:
-                self.after_cancel(self.render_after_id)
-            except tkinter.TclError:
-                pass
-            self.render_after_id = None
-        self.loading_label = None
-        for child in self.list_frame.winfo_children():
-            child.destroy()
+        self.list_frame.clear()
 
     def _show_loading_state(self, message: str):
         self._clear_rows()
         self.summary_var.set(message)
-        self.loading_label = customtkinter.CTkLabel(
-            self.list_frame,
+        loading = customtkinter.CTkLabel(
+            self.list_frame.canvas,
             text="Loading inventory...",
             font=customtkinter.CTkFont(family="Segoe UI", size=18),
         )
-        self.loading_label.grid(row=0, column=0, padx=14, pady=18, sticky="w")
+        self.list_frame.set_empty_widget(loading)
 
-    def _create_inventory_row(self, file_path: Path, index: int, palette: dict):
-        row = customtkinter.CTkFrame(self.list_frame, fg_color=palette["row_bg"], corner_radius=12)
-        row.grid(row=index, column=0, sticky="ew", padx=8, pady=5)
-        row.grid_columnconfigure(0, weight=1)
-
-        file_label = customtkinter.CTkLabel(
-            row,
-            text=file_path.stem,
-            anchor="w",
-            justify="left",
-            wraplength=500,
-            font=customtkinter.CTkFont(family="Segoe UI", size=16, weight="bold"),
+    def _build_empty_inventory(self):
+        palette = current_palette()
+        empty = customtkinter.CTkFrame(self.list_frame.canvas, fg_color="transparent")
+        empty_icon = customtkinter.CTkLabel(empty, text="", image=self.app_controller.inventory_icon)
+        empty_icon.pack(anchor="w", pady=(0, 10))
+        empty_text = customtkinter.CTkLabel(
+            empty,
+            text="No downloaded sound effects found.",
+            font=customtkinter.CTkFont(family="Segoe UI", size=18),
         )
-        file_label.grid(row=0, column=0, sticky="ew", padx=(12, 8), pady=10)
-
-        play_button = customtkinter.CTkButton(
-            row,
-            text="Play",
-            width=90,
-            image=self.app_controller.play_icon,
-            compound="left",
-            command=lambda current=file_path: threading.Thread(target=playsound, args=(str(current),), daemon=True).start(),
-            fg_color=palette["accent"],
-            hover_color=palette["accent_hover"],
-            text_color=palette["text_primary"],
-        )
-        play_button.grid(row=0, column=1, padx=4, pady=8)
-
-        reveal_button = customtkinter.CTkButton(
-            row,
-            text="Open",
-            width=90,
-            command=lambda current=file_path: os.startfile(str(current)),
+        empty_text.pack(anchor="w")
+        action = customtkinter.CTkButton(
+            empty,
+            text="Open Downloads Folder",
+            command=self.app_controller.open_download_folder,
             image=self.app_controller.folder_open_icon,
             compound="left",
-            fg_color=palette["success"],
-            hover_color=palette["success_hover"],
+            fg_color=palette["accent"],
+            hover_color=palette["accent_hover"],
         )
-        reveal_button.grid(row=0, column=2, padx=4, pady=8)
+        action.pack(anchor="w", pady=(12, 0))
+        return empty
 
-        rename_button = customtkinter.CTkButton(
-            row,
-            text="Rename",
-            width=90,
-            command=lambda current=file_path: self.rename_item(current),
-            image=self.app_controller.rename_icon,
-            compound="left",
-            fg_color=palette["toolbar_btn"],
-            hover_color=palette["toolbar_hover"],
-            text_color=palette["text_primary"],
-        )
-        rename_button.grid(row=0, column=3, padx=4, pady=8)
+    def _show_inventory_context_menu(self, event, file_path: Path):
+        menu = RowContextMenu(self)
+        menu.set_actions([
+            ("Play", lambda current=file_path: self.play_inventory_file(current)),
+            ("Reveal", lambda current=file_path: os.startfile(str(current))),
+            ("Rename", lambda current=file_path: self.rename_item(current)),
+            ("Delete", lambda current=file_path: self.delete_item(current)),
+            ("Copy Path", lambda current=file_path: self.copy_path(current)),
+        ])
+        menu.popup(event)
 
-        delete_button = customtkinter.CTkButton(
-            row,
-            text="Delete",
-            width=90,
-            command=lambda current=file_path: self.delete_item(current),
-            image=self.app_controller.delete_icon,
-            compound="left",
-            fg_color=palette["danger"],
-            hover_color=palette["danger_hover"],
-        )
-        delete_button.grid(row=0, column=4, padx=(4, 10), pady=8)
+    def play_inventory_file(self, file_path: Path):
+        self.app_controller.set_status(f"Playing: {file_path.stem}")
+        threading.Thread(target=playsound, args=(str(file_path),), daemon=True).start()
 
-    def _render_inventory_batches(self, files, token: int, start_index: int = 0, batch_size: int = 20):
-        if token != self.refresh_token or not self.winfo_exists():
-            return
-        if self.loading_label is not None and self.loading_label.winfo_exists():
-            self.loading_label.destroy()
-            self.loading_label = None
+    def copy_path(self, file_path: Path):
+        self.clipboard_clear()
+        self.clipboard_append(str(file_path.resolve()))
+        self.app_controller.set_status(f"Copied path: {file_path.name}")
 
+    def _create_inventory_row(self, _master, file_path: Path, _index: int):
         palette = current_palette()
-        end_index = min(start_index + batch_size, len(files))
-        for index in range(start_index, end_index):
-            self._create_inventory_row(files[index], index, palette)
-
-        if end_index < len(files):
-            self.render_after_id = self.after(1, self._render_inventory_batches, files, token, end_index, batch_size)
-        else:
-            self.render_after_id = None
+        context_menu = RowContextMenu(self)
+        context_menu.set_actions([
+            ("Play", lambda current=file_path: self.play_inventory_file(current)),
+            ("Reveal", lambda current=file_path: os.startfile(str(current))),
+            ("Rename", lambda current=file_path: self.rename_item(current)),
+            ("Delete", lambda current=file_path: self.delete_item(current)),
+            ("Copy Path", lambda current=file_path: self.copy_path(current)),
+        ])
+        return InventoryRow(
+            self.list_frame.canvas,
+            self.app_controller,
+            file_path,
+            play_command=lambda current=file_path: self.play_inventory_file(current),
+            open_command=lambda current=file_path: os.startfile(str(current)),
+            rename_command=lambda current=file_path: self.rename_item(current),
+            delete_command=lambda current=file_path: self.delete_item(current),
+            context_menu=context_menu,
+            palette=palette,
+        )
 
     def _finish_inventory_refresh(self, files, token: int):
         if token != self.refresh_token or not self.winfo_exists():
             return
         self._clear_rows()
+        self.inventory_files = list(files)
         self.summary_var.set(f"{len(files)} downloaded sound effect(s)")
 
         if not files:
-            empty = customtkinter.CTkLabel(
-                self.list_frame,
-                text="No downloaded sound effects found.",
-                font=customtkinter.CTkFont(family="Segoe UI", size=18),
-            )
-            empty.grid(row=0, column=0, padx=14, pady=18, sticky="w")
+            self.list_frame.set_empty_widget(self._build_empty_inventory())
             return
 
-        self._render_inventory_batches(files, token)
+        self.list_frame.set_items(files, self._create_inventory_row, item_key=lambda path: str(path))
 
     def refresh_inventory(self):
         self.refresh_token += 1
@@ -945,11 +1225,6 @@ class InventoryWindow(customtkinter.CTkToplevel):
 
     def close(self):
         self.app_controller.inventory_window = None
-        if self.render_after_id is not None:
-            try:
-                self.after_cancel(self.render_after_id)
-            except tkinter.TclError:
-                pass
         self.destroy()
 
 
@@ -963,12 +1238,18 @@ class MyInstantsApp:
         self.row_widgets = {}
         self.active_downloads = set()
         self.hide_downloaded = self.settings.get("hide_downloaded", True)
+        self.server_region = normalize_region(self.settings.get("server_region", DEFAULT_REGION))
+        self.server_base_url = normalize_base_url(self.settings.get("server_base_url", DEFAULT_BASE_URL))
         self.current_mode = "page"
         self.last_search_query = ""
         self.batch_window = None
         self.settings_window = None
         self.inventory_window = None
         self.auto_download_page_on_load = None
+        self.prefetched_pages = {}
+        self.page_fetch_tokens = {}
+        self.page_prefetching = set()
+        self.visible_items = []
 
         customtkinter.set_appearance_mode(self.settings.get("appearance_mode", "Dark"))
 
@@ -1171,15 +1452,12 @@ class MyInstantsApp:
         )
         next_button.pack(side="left", pady=2)
 
-        self.list_frame = customtkinter.CTkScrollableFrame(
+        self.list_frame = VirtualizedList(
             list_panel,
-            corner_radius=14,
             fg_color=palette["panel_bg"],
-            scrollbar_button_color=palette["toolbar_btn"],
-            scrollbar_button_hover_color=palette["toolbar_hover"],
+            corner_radius=14,
         )
         self.list_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        self.list_frame.grid_columnconfigure(0, weight=1)
 
     def set_status(self, message: str):
         self.status_var.set(message)
@@ -1234,8 +1512,114 @@ class MyInstantsApp:
 
     def clear_list(self):
         self.row_widgets = {}
-        for child in self.list_frame.winfo_children():
-            child.destroy()
+        self.list_frame.clear()
+
+    def copy_path_to_clipboard(self, file_path: Path):
+        self.app.clipboard_clear()
+        self.app.clipboard_append(str(file_path.resolve()))
+        self.set_status(f"Copied path: {file_path.name}")
+
+    def rename_downloaded_item(self, file_path: Path):
+        if self.inventory_window is not None and self.inventory_window.winfo_exists():
+            self.inventory_window.rename_item(file_path)
+            return
+        new_name = simpledialog.askstring(
+            "Rename Sound",
+            "Enter a new name for this sound:",
+            initialvalue=file_path.stem,
+            parent=self.app,
+        )
+        if new_name is None:
+            return
+        cleaned_name = sanitize_title(new_name).strip()
+        if not cleaned_name:
+            messagebox.showerror("Rename Failed", "Please enter a valid file name.", parent=self.app)
+            return
+        target_path = file_path.with_name(f"{cleaned_name}.mp3")
+        if target_path == file_path:
+            return
+        if target_path.exists():
+            messagebox.showerror("Rename Failed", "A sound with that name already exists.", parent=self.app)
+            return
+        try:
+            file_path.rename(target_path)
+        except OSError as exc:
+            messagebox.showerror("Rename Failed", str(exc), parent=self.app)
+            return
+        self.set_status(f"Renamed {file_path.name} to {target_path.name}")
+        self.render_items(self.current_items, self.status_var.get())
+
+    def delete_downloaded_item(self, file_path: Path):
+        if self.inventory_window is not None and self.inventory_window.winfo_exists():
+            self.inventory_window.delete_item(file_path)
+            return
+        confirmed = messagebox.askyesno("Delete Sound", f"Delete '{file_path.name}' from downloads?", parent=self.app)
+        if not confirmed:
+            return
+        try:
+            file_path.unlink()
+        except OSError as exc:
+            messagebox.showerror("Delete Failed", str(exc), parent=self.app)
+            return
+        self.set_status(f"Deleted {file_path.name}")
+        self.render_items(self.current_items, self.status_var.get())
+
+    def _build_main_empty_state(self, items):
+        palette = current_palette()
+        empty = customtkinter.CTkFrame(self.list_frame.canvas, fg_color="transparent")
+        empty_icon = customtkinter.CTkLabel(empty, text="", image=self.search_empty_icon)
+        empty_icon.pack(anchor="w", pady=(0, 10))
+        if self.current_mode == "search" and self.last_search_query:
+            empty_text = customtkinter.CTkLabel(empty, text="No sounds found for this search.", font=customtkinter.CTkFont(family="Segoe UI", size=18))
+            empty_text.pack(anchor="w")
+            empty_query = customtkinter.CTkLabel(empty, text=self.last_search_query, font=customtkinter.CTkFont(family="Segoe UI", size=19, weight="bold"), text_color=palette["text_primary"])
+            empty_query.pack(anchor="w", pady=(4, 0))
+            action = customtkinter.CTkButton(empty, text="Back To Trending", command=lambda: self.load_page(1), image=self.home_icon, compound="left", fg_color=palette["accent"], hover_color=palette["accent_hover"])
+            action.pack(anchor="w", pady=(12, 0))
+            return empty
+        if self.hide_downloaded and items:
+            empty_text = customtkinter.CTkLabel(empty, text="All sounds in this view are already downloaded.", font=customtkinter.CTkFont(family="Segoe UI", size=18))
+            empty_text.pack(anchor="w")
+            return empty
+        empty_text = customtkinter.CTkLabel(empty, text="No sounds found for this view.", font=customtkinter.CTkFont(family="Segoe UI", size=18))
+        empty_text.pack(anchor="w")
+        action = customtkinter.CTkButton(empty, text="Reload Current View", command=self.reload_current_view, image=self.search_icon, compound="left", fg_color=palette["accent"], hover_color=palette["accent_hover"])
+        action.pack(anchor="w", pady=(12, 0))
+        return empty
+
+    def _create_main_row(self, _master, item, _index):
+        palette = current_palette()
+        file_path = target_path_for(self.download_dir, item["title"])
+        menu = RowContextMenu(self.app)
+        actions = [("Play", lambda current=item: self.play_sound(current))]
+        if file_path.exists():
+            actions.extend([
+                ("Reveal", lambda current=file_path: os.startfile(str(current))),
+                ("Rename", lambda current=file_path: self.rename_downloaded_item(current)),
+                ("Delete", lambda current=file_path: self.delete_downloaded_item(current)),
+            ])
+        else:
+            actions.append(("Download", lambda current=item: self.download_item(current)))
+            actions.append(("Open Downloads Folder", self.open_download_folder))
+        actions.append(("Copy Path", lambda current=file_path: self.copy_path_to_clipboard(current)))
+        menu.set_actions(actions)
+        return SoundRow(
+            self.list_frame.canvas,
+            item=item,
+            play_command=lambda current=item: self.play_sound(current),
+            download_command=lambda current=item: self.download_item(current),
+            icon_image=self.download_icon,
+            play_icon=self.play_icon,
+            palette=palette,
+            context_menu=menu,
+        )
+
+    def _update_main_row(self, row, item, _index):
+        self.row_widgets[item["url"]] = row
+        if item["url"] in self.active_downloads:
+            row.set_downloading(True)
+        else:
+            row.set_downloaded(target_path_for(self.download_dir, item["title"]).exists())
 
     def render_items(self, items, status_message):
         self.current_items = list(items)
@@ -1323,7 +1707,7 @@ class MyInstantsApp:
     def load_page(self, page_number):
         def _worker():
             try:
-                items = getPage(page_number)
+                items = getPage(page_number, region=self.server_region, base_url=self.server_base_url)
                 self.current_mode = "page"
                 self.page_no = page_number
                 self.app.after(0, self.page_var.set, f"Page {self.page_no}")
@@ -1356,7 +1740,7 @@ class MyInstantsApp:
 
         def _worker():
             try:
-                items = searchq(query)
+                items = searchq(query, base_url=self.server_base_url)
                 self.current_mode = "search"
                 self.last_search_query = query
                 self.app.after(0, self.page_var.set, "Search Results")
@@ -1368,13 +1752,137 @@ class MyInstantsApp:
                     f"Loaded search results for '{query}'",
                 )
             except Exception as exc:
-                self.app.after(0, self.set_status, f"Search failed: {exc}")
+                self.app.after(0, self.set_status, f"Search failed on {self.server_base_url}: {exc}")
 
         self.page_var.set("Search Results • Loading...")
         self.set_loading_state(f"Searching for '{query}'...", "Searching...")
         self.page_var.set("Search Results")
         self.list_title_var.set("Search Results")
         threading.Thread(target=_worker, daemon=True).start()
+
+    def prefetch_page(self, page_number):
+        if page_number <= 0 or page_number in self.prefetched_pages or page_number in self.page_prefetching:
+            return
+
+        def _worker():
+            try:
+                items = getPage(page_number, region=self.server_region, base_url=self.server_base_url)
+            except Exception:
+                return
+            finally:
+                self.page_prefetching.discard(page_number)
+            self.prefetched_pages[page_number] = items
+
+        self.page_prefetching.add(page_number)
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def render_items(self, items, status_message):
+        self.current_items = list(items)
+        visible_items = [
+            item for item in items
+            if not self.hide_downloaded or not target_path_for(self.download_dir, item["title"]).exists()
+        ]
+        self.visible_items = list(visible_items)
+        if self.hide_downloaded:
+            self.result_var.set(f"{len(visible_items)} shown • {len(items)} sounds total")
+        else:
+            self.result_var.set(f"{len(items)} sounds total")
+        self.set_status(status_message)
+        self.clear_list()
+
+        if not visible_items:
+            if self.hide_downloaded and items:
+                self.result_var.set(f"0 shown • {len(items)} sounds total")
+            else:
+                self.result_var.set("0 sounds total")
+            self.list_frame.set_empty_widget(self._build_main_empty_state(items))
+            return
+
+        self.list_frame.set_items(
+            visible_items,
+            self._create_main_row,
+            row_updater=self._update_main_row,
+            item_key=lambda item: item["url"],
+        )
+        if self.current_mode == "page":
+            self.prefetch_page(self.page_no + 1)
+
+    def load_page(self, page_number):
+        token = self.page_fetch_tokens.get(page_number, 0) + 1
+        self.page_fetch_tokens[page_number] = token
+
+        def _finish(items):
+            if self.page_fetch_tokens.get(page_number) != token:
+                return
+            self.current_mode = "page"
+            self.page_no = page_number
+            self.page_var.set(f"Page {self.page_no}")
+            self.list_title_var.set(f"Page {self.page_no}")
+            self.render_items(items, f"Loaded page {self.page_no}")
+            if self.auto_download_page_on_load == page_number:
+                self.auto_download_page_on_load = None
+                self.download_all_current()
+
+        def _fail(exc):
+            if self.auto_download_page_on_load == page_number:
+                self.auto_download_page_on_load = None
+            self.set_status(
+                f"Unable to load page {page_number} from {self.server_base_url} [{self.server_region.upper()}]: {exc}"
+            )
+
+        def _worker():
+            try:
+                items = getPage(page_number)
+                self.prefetched_pages[page_number] = items
+                self.app.after(0, _finish, items)
+            except Exception as exc:
+                self.app.after(0, _fail, exc)
+
+        self.page_var.set(f"Page {page_number} • Loading...")
+        self.set_loading_state(f"Loading page {page_number}...", "Loading page...")
+        self.page_var.set(f"Page {page_number}")
+        self.list_title_var.set(f"Page {page_number}")
+        cached = self.prefetched_pages.pop(page_number, None)
+        if cached is not None:
+            self.app.after(0, _finish, cached)
+            return
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def render_items(self, items, status_message):
+        self.current_items = list(items)
+        visible_items = [
+            item for item in items
+            if not self.hide_downloaded or not target_path_for(self.download_dir, item["title"]).exists()
+        ]
+        self.visible_items = list(visible_items)
+        if self.hide_downloaded:
+            self.result_var.set(f"{len(visible_items)} shown • {len(items)} sounds total")
+        else:
+            self.result_var.set(f"{len(items)} sounds total")
+        self.set_status(status_message)
+        self.clear_list()
+
+        if not visible_items:
+            if self.current_mode == "page" and self.hide_downloaded and items:
+                next_page_number = self.page_no + 1
+                self.set_status(f"All sounds on page {self.page_no} are already downloaded. Loading page {next_page_number}...")
+                self.load_page(next_page_number)
+                return
+            if self.hide_downloaded and items:
+                self.result_var.set(f"0 shown • {len(items)} sounds total")
+            else:
+                self.result_var.set("0 sounds total")
+            self.list_frame.set_empty_widget(self._build_main_empty_state(items))
+            return
+
+        self.list_frame.set_items(
+            visible_items,
+            self._create_main_row,
+            row_updater=self._update_main_row,
+            item_key=lambda item: item["url"],
+        )
+        if self.current_mode == "page":
+            self.prefetch_page(self.page_no + 1)
 
     def reload_current_view(self):
         if self.current_mode == "search":
