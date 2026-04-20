@@ -3,10 +3,10 @@
 ![B2](https://img.shields.io/github/downloads/riffpointer/MyInstants-Downloader-GUI/total)
 <br>
 
-A GUI utility to play and download sounds from [myinstants.com](https://www.myinstants.com/en/index/in/) made using python with least effort 💀. A great tool for s**tposters and content creators.
+A GUI utility to play and download sounds from [myinstants.com](https://www.myinstants.com/en/index/in/) 
 
 
-# Improvements by RiffPointer
+### Improvements by RiffPointer
 - Refreshed the app layout and reorganized the toolbar controls.
 - Removed the startup autoplay behavior.
 - Added batch download progress with skipping for already-downloaded files.
