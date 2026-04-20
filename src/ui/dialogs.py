@@ -184,6 +184,7 @@ class InventoryDialog(QDialog):
         self.parent_app = parent
         self.setWindowTitle("Inventory")
         self.resize(800, 600)
+        self.selected_widget = None
         self.setup_ui()
         self.refresh()
 
@@ -234,6 +235,7 @@ class InventoryDialog(QDialog):
             self.refresh()
 
     def refresh(self):
+        self.selected_widget = None
         while self.list_layout.count():
             item = self.list_layout.takeAt(0)
             widget = item.widget()
@@ -259,6 +261,44 @@ class InventoryDialog(QDialog):
         else:
             for i, f in enumerate(files):
                 self.list_layout.addWidget(InventoryItemWidget(f, self, is_even=(i % 2 == 0)))
+
+    def select_item(self, widget):
+        if self.selected_widget:
+            self.selected_widget.is_selected = False
+            self.selected_widget.update_style()
+        
+        self.selected_widget = widget
+        if self.selected_widget:
+            self.selected_widget.is_selected = True
+            self.selected_widget.update_style()
+            self.scroll.ensureWidgetVisible(self.selected_widget)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Up, Qt.Key_Down):
+            widgets = []
+            for i in range(self.list_layout.count()):
+                w = self.list_layout.itemAt(i).widget()
+                if isinstance(w, InventoryItemWidget):
+                    widgets.append(w)
+            
+            if not widgets:
+                return super().keyPressEvent(event)
+            
+            if self.selected_widget is None:
+                self.select_item(widgets[0])
+            else:
+                try:
+                    current_idx = widgets.index(self.selected_widget)
+                    if event.key() == Qt.Key_Up:
+                        new_idx = max(0, current_idx - 1)
+                    else:
+                        new_idx = min(len(widgets) - 1, current_idx + 1)
+                    self.select_item(widgets[new_idx])
+                except ValueError:
+                    self.select_item(widgets[0])
+            return
+            
+        super().keyPressEvent(event)
 
 class AboutDialog(QDialog):
     def __init__(self, parent):

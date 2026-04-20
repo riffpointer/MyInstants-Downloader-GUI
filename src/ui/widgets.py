@@ -60,8 +60,11 @@ class SoundItemWidget(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.is_selected = not self.is_selected
-            self.update_style()
+            if hasattr(self.parent_app, "select_item"):
+                self.parent_app.select_item(self)
+            else:
+                self.is_selected = not self.is_selected
+                self.update_style()
         super().mousePressEvent(event)
 
     def set_downloaded(self, downloaded=True):
@@ -78,22 +81,28 @@ class SoundItemWidget(QFrame):
         menu = QMenu(self)
         
         play_act = menu.addAction("Play")
+        play_act.setIcon(get_icon("play-fill.png", color_invert=self.is_dark))
         play_act.triggered.connect(lambda: self.play_requested.emit(self.item))
         
         file_path = target_path_for(self.parent_app.download_dir, self.item["title"])
         if file_path.exists():
             reveal_act = menu.addAction("Reveal in Explorer")
+            reveal_act.setIcon(get_icon("folder2-open.png", color_invert=self.is_dark))
             reveal_act.triggered.connect(lambda: os.startfile(str(file_path.parent)))
             
             rename_act = menu.addAction("Rename")
+            rename_act.setIcon(get_icon("cursor-text.png", color_invert=self.is_dark))
             rename_act.triggered.connect(lambda: self.parent_app.rename_downloaded_item(file_path))
             
             delete_act = menu.addAction("Delete")
+            delete_act.setIcon(get_icon("trash3.png", color_invert=self.is_dark))
             delete_act.triggered.connect(lambda: self.parent_app.delete_downloaded_item(file_path))
         else:
             download_act = menu.addAction("Download")
+            download_act.setIcon(get_icon("download.png", color_invert=self.is_dark))
             download_act.triggered.connect(lambda: self.download_requested.emit(self.item))
             
+        menu.addSeparator()
         copy_url_act = menu.addAction("Copy URL")
         copy_url_act.triggered.connect(lambda: QApplication.clipboard().setText(self.item["url"]))
         
@@ -158,9 +167,17 @@ class InventoryItemWidget(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.is_selected = not self.is_selected
-            self.update_style()
+            if hasattr(self.parent_dialog, "select_item"):
+                self.parent_dialog.select_item(self)
+            else:
+                self.is_selected = not self.is_selected
+                self.update_style()
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.rename()
+        super().mouseDoubleClickEvent(event)
 
     def play(self):
         threading.Thread(target=self._play_thread, daemon=True).start()
@@ -181,17 +198,22 @@ class InventoryItemWidget(QFrame):
         menu = QMenu(self)
         
         play_act = menu.addAction("Play")
+        play_act.setIcon(get_icon("play-fill.png", color_invert=self.is_dark))
         play_act.triggered.connect(self.play)
         
         reveal_act = menu.addAction("Reveal in Explorer")
+        reveal_act.setIcon(get_icon("folder2-open.png", color_invert=self.is_dark))
         reveal_act.triggered.connect(lambda: os.startfile(str(self.file_path.parent)))
         
         rename_act = menu.addAction("Rename")
+        rename_act.setIcon(get_icon("cursor-text.png", color_invert=self.is_dark))
         rename_act.triggered.connect(self.rename)
         
         delete_act = menu.addAction("Delete")
+        delete_act.setIcon(get_icon("trash3.png", color_invert=self.is_dark))
         delete_act.triggered.connect(self.delete)
         
+        menu.addSeparator()
         copy_path_act = menu.addAction("Copy Path")
         copy_path_act.triggered.connect(lambda: QApplication.clipboard().setText(str(self.file_path.resolve())))
         

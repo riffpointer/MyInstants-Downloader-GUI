@@ -28,6 +28,7 @@ class MainWindow(QMainWindow):
         self.current_page = 1
         self.current_items = []
         self.active_workers = []
+        self.selected_widget = None
         
         self.setup_ui()
         self.setup_menu()
@@ -77,6 +78,8 @@ class MainWindow(QMainWindow):
         
         self.search_entry = QLineEdit()
         self.search_entry.setPlaceholderText("Search sounds...")
+        search_icon = get_icon("search.png", color_invert=is_dark)
+        self.search_entry.addAction(search_icon, QLineEdit.LeadingPosition)
         self.search_entry.returnPressed.connect(self.search)
         self.btn_search = QPushButton(" Search")
         self.btn_search.setStyleSheet("padding: 4px 8px;")
@@ -186,7 +189,6 @@ class MainWindow(QMainWindow):
 
     def update_icons(self, is_dark):
         self.setWindowIcon(get_icon("main.ico"))
-        self.btn_open_folder.setIcon(get_icon("folder2-open.png", color_invert=is_dark))
         self.btn_download_all.setIcon(get_icon("download.png", color_invert=is_dark))
         self.btn_inventory.setIcon(get_icon("box2-fill.png", color_invert=is_dark))
         self.btn_prev.setIcon(get_icon("arrow-left.png", color_invert=is_dark))
@@ -224,6 +226,7 @@ class MainWindow(QMainWindow):
 
     def on_items_loaded(self, items):
         self.current_items = items
+        self.selected_widget = None
         self.statusBar().showMessage(f"Loaded {len(items)} sounds.")
         self.render_items(items)
         self.stacked_widget.setCurrentWidget(self.scroll_area)
@@ -256,6 +259,44 @@ class MainWindow(QMainWindow):
             widget.play_requested.connect(self.play_sound)
             widget.download_requested.connect(self.download_item)
             self.list_layout.addWidget(widget)
+
+    def select_item(self, widget):
+        if self.selected_widget:
+            self.selected_widget.is_selected = False
+            self.selected_widget.update_style()
+        
+        self.selected_widget = widget
+        if self.selected_widget:
+            self.selected_widget.is_selected = True
+            self.selected_widget.update_style()
+            self.scroll_area.ensureWidgetVisible(self.selected_widget)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Up, Qt.Key_Down):
+            widgets = []
+            for i in range(self.list_layout.count()):
+                w = self.list_layout.itemAt(i).widget()
+                if isinstance(w, SoundItemWidget):
+                    widgets.append(w)
+            
+            if not widgets:
+                return super().keyPressEvent(event)
+            
+            if self.selected_widget is None:
+                self.select_item(widgets[0])
+            else:
+                try:
+                    current_idx = widgets.index(self.selected_widget)
+                    if event.key() == Qt.Key_Up:
+                        new_idx = max(0, current_idx - 1)
+                    else:
+                        new_idx = min(len(widgets) - 1, current_idx + 1)
+                    self.select_item(widgets[new_idx])
+                except ValueError:
+                    self.select_item(widgets[0])
+            return
+            
+        super().keyPressEvent(event)
 
     def play_sound(self, item):
         self.statusBar().showMessage(f"Playing: {item['title']}")
@@ -358,6 +399,3 @@ class MainWindow(QMainWindow):
     def prev_page(self):
         if self.current_page > 1:
             self.load_page(self.current_page - 1)
-
-    def open_download_folder(self):
-        os.startfile(str(self.download_dir.resolve()))
