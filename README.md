@@ -5,7 +5,7 @@
 
 A Qt-based GUI utility to play and download sounds from [myinstants.com](https://www.myinstants.com/en/index/in/).
 
-## Improvements by RiffPointer
+## What's new in 2.0?
 - Rebuilt the app around PySide6 with a cleaner toolbar and menu layout.
 - Added batch download progress with skipping for already-downloaded files.
 - Added next-page prompting when a page is fully downloaded.
@@ -39,3 +39,10 @@ Download the latest installer from the Releases page and run it normally.
 Main screen:
 
 <img width="1366" height="728" alt="image" src="https://github.com/user-attachments/assets/0b55c19c-de55-4343-bae6-9ea76aa4cea1" />
+
+## License
+Licensed under the MIT License.
+
+## Contributors
+- https://github.com/Shagnikpaul - Author
+- https://github.com/riffpointer - PySide6 port
