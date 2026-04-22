@@ -14,15 +14,15 @@ A Qt-based GUI utility to play and download sounds from [myinstants.com](https:/
 - Improved search behavior, empty states, and focus handling across dialogs.
 
 ## Run
-Windows only.
+For now, executable files are published for Windows only. But you can run it manually by cloning the repo, installing the dependencies from `requirements.txt`, and running the program manually with `py main.py`.
 
 ### Portable ZIP
-Download the latest release ZIP, extract it, and run `main.exe`.
+Download the latest release ZIP, extract it, and run `MyInstantsDownloader.exe`.
 
 ### Installer
 Download the latest installer from the Releases page and run it normally.
 
-## Project Layout
+## Project Layout (for devs)
 - `main.py` is the Qt entrypoint.
 - `src/ui/` contains the main window and dialogs.
 - `src/workers/` contains scraping, playback, and download workers.
@@ -33,7 +33,8 @@ Download the latest installer from the Releases page and run it normally.
 ## Notes
 - Downloaded files are saved in the `downloads` folder next to the app.
 - The inventory window shows saved files and supports rename/delete actions.
-- The old Tk/CustomTkinter interface has been removed from the active codebase.
+- (Coming soon) You can drag and drop sound effects from within the inventory window.
+- (Coming soon) Support for more services.
 
 ## Screenshot
 Main screen:
