@@ -42,9 +42,17 @@ Download the latest installer from the Releases page and run it normally.
 - (Coming soon) Support for more services.
 
 ## Screenshot
-Main screen:
+Main screen (dark mode):
+<img width="882" height="656" alt="image" src="https://github.com/user-attachments/assets/bbbf137a-d1cd-4f0d-87e7-fcfe2c13da19" />
 
-<img width="1366" height="728" alt="image" src="https://github.com/user-attachments/assets/0b55c19c-de55-4343-bae6-9ea76aa4cea1" />
+Main screen (light mode. I know the search icon aint visible in light mode but i'll fix it later):
+<img width="882" height="656" alt="image" src="https://github.com/user-attachments/assets/b4e7e3a8-49db-422a-bdf3-d272db2f8040" />
+
+Inventory screen:
+<img width="802" height="632" alt="image" src="https://github.com/user-attachments/assets/1f552102-14ae-4b97-9651-eeb32a96cbd2" />
+
+Batch download:
+<img width="602" height="532" alt="image" src="https://github.com/user-attachments/assets/441e154d-599e-4257-aedb-4695d9443bb2" />
 
 ## Libraries Used.
 - `PySide6` for GUI
