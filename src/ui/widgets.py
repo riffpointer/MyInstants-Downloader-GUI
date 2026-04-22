@@ -52,6 +52,22 @@ class SoundItemWidget(QFrame):
         self.btn_play.setStyleSheet("padding: 2px;")
         self.btn_play.setFocusPolicy(Qt.NoFocus)
         self.btn_play.clicked.connect(lambda: self.play_requested.emit(self.item))
+
+        self.play_progress = QProgressBar()
+        self.play_progress.setRange(0, 100)
+        self.play_progress.setValue(0)
+        self.play_progress.setTextVisible(False)
+        self.play_progress.setFixedSize(32, 28)
+        self.play_progress.setVisible(False)
+        self.play_progress.setStyleSheet(
+            "QProgressBar { border: 1px solid rgba(120, 120, 120, 0.35); border-radius: 6px; background: rgba(120, 120, 120, 0.12); }"
+            "QProgressBar::chunk { border-radius: 6px; background: #4d9fff; }"
+        )
+
+        self.play_stack = QStackedWidget()
+        self.play_stack.setFixedSize(32, 28)
+        self.play_stack.addWidget(self.btn_play)
+        self.play_stack.addWidget(self.play_progress)
         
         self.btn_download = QPushButton(" Download")
         self.btn_download.setIcon(get_icon("download.png", color_invert=self.is_dark))
@@ -69,22 +85,10 @@ class SoundItemWidget(QFrame):
         self.btn_favorite.setFocusPolicy(Qt.NoFocus)
         self.btn_favorite.clicked.connect(self.toggle_favorite)
 
-        self.download_progress = QProgressBar()
-        self.download_progress.setRange(0, 100)
-        self.download_progress.setValue(0)
-        self.download_progress.setTextVisible(False)
-        self.download_progress.setFixedHeight(28)
-        self.download_progress.setVisible(False)
-        self.download_progress.setStyleSheet(
-            "QProgressBar { border: 1px solid rgba(120, 120, 120, 0.35); border-radius: 6px; background: rgba(120, 120, 120, 0.12); }"
-            "QProgressBar::chunk { border-radius: 6px; background: #4d9fff; }"
-        )
-
-        layout.addWidget(self.btn_play)
+        layout.addWidget(self.play_stack)
         layout.addWidget(self.title_label, 1)
         layout.addWidget(self.btn_download)
         layout.addWidget(self.btn_favorite)
-        layout.addWidget(self.download_progress)
         self.set_favorited(self.is_favorited)
 
     def update_style(self):
@@ -106,13 +110,13 @@ class SoundItemWidget(QFrame):
             self.btn_download.setEnabled(False)
             self.btn_download.setText(" Saved")
             self.btn_download.setVisible(True)
-            self.download_progress.setVisible(False)
+            self.play_stack.setCurrentWidget(self.btn_play)
         else:
             self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; background: transparent;")
             self.btn_download.setEnabled(True)
             self.btn_download.setText(" Download")
             self.btn_download.setVisible(True)
-            self.download_progress.setVisible(False)
+            self.play_stack.setCurrentWidget(self.btn_play)
 
     def set_favorited(self, favorited: bool):
         self.is_favorited = favorited
@@ -128,10 +132,10 @@ class SoundItemWidget(QFrame):
 
     def set_downloading(self, downloading: bool, percent: int = 0):
         self.btn_download.setVisible(not downloading)
-        self.download_progress.setVisible(downloading)
-        self.download_progress.setValue(max(0, min(100, int(percent))))
+        self.play_stack.setCurrentWidget(self.play_progress if downloading else self.btn_play)
+        self.play_progress.setValue(max(0, min(100, int(percent))))
         if downloading:
-            self.download_progress.setFormat("")
+            self.play_progress.setFormat("")
 
     def toggle_favorite(self):
         self.favorite_requested.emit(self.item)
