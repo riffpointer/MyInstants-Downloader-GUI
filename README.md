@@ -5,7 +5,7 @@
 
 A Qt-based GUI utility to play and download sounds from [myinstants.com](https://www.myinstants.com/en/index/in/).
 
-## What's new in 2.0?
+## What's new in 3.0?
 - Rebuilt the app around PySide6 with a cleaner toolbar and menu layout.
 - Added batch download progress with skipping for already-downloaded files.
 - Added next-page prompting when a page is fully downloaded.
@@ -38,6 +38,7 @@ Download the latest installer from the Releases page and run it normally.
 - Downloaded files can be found in `downloads` folder present in the directory where files were extracted. (The one contaning the .exe file of this app.
 - You can choose a custom download location either from settings or the inventory window.
 - The inventory window shows saved files and supports rename/delete actions.
+- It shows a warning before playing the sound if it is too loud (requires `ffmpeg` available, i.e to be in PATH).
 - (Coming soon) You can drag and drop sound effects from within the inventory window.
 - (Coming soon) Support for more services.
 

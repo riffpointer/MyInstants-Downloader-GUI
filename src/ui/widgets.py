@@ -2,22 +2,32 @@ import os
 import threading
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QMenu, QApplication, QInputDialog, QLineEdit, QMessageBox,
-    QStackedWidget, QProgressBar
+    QStackedWidget, QProgressBar, QCheckBox
 )
 from PySide6.QtCore import Signal, Qt, QSize
 from .theme import get_icon
-from ..utils import target_path_for, sanitize_title
+from ..utils import target_path_for, sanitize_title, friendly_error_message
 
 class SoundItemWidget(QFrame):
     play_requested = Signal(dict)
     download_requested = Signal(dict)
+    favorite_requested = Signal(object)
 
-    def __init__(self, item, is_downloaded=False, parent_app=None, is_even=False):
+    def __init__(
+        self,
+        item,
+        is_downloaded=False,
+        is_favorited=False,
+        parent_app=None,
+        is_even=False,
+    ):
         super().__init__()
         self.item = item
         self.parent_app = parent_app
         self.is_selected = False
         self.is_even = is_even
+        self.is_favorited = is_favorited
+        self.playback_worker = None
         self.setFrameShape(QFrame.NoFrame)
         
         self.is_dark = False
@@ -53,6 +63,12 @@ class SoundItemWidget(QFrame):
             self.btn_download.setEnabled(False)
             self.btn_download.setText(" Saved")
 
+        self.btn_favorite = QPushButton()
+        self.btn_favorite.setFixedSize(32, 28)
+        self.btn_favorite.setToolTip("Favourite")
+        self.btn_favorite.setFocusPolicy(Qt.NoFocus)
+        self.btn_favorite.clicked.connect(self.toggle_favorite)
+
         self.download_progress = QProgressBar()
         self.download_progress.setRange(0, 100)
         self.download_progress.setValue(0)
@@ -67,7 +83,9 @@ class SoundItemWidget(QFrame):
         layout.addWidget(self.btn_play)
         layout.addWidget(self.title_label, 1)
         layout.addWidget(self.btn_download)
+        layout.addWidget(self.btn_favorite)
         layout.addWidget(self.download_progress)
+        self.set_favorited(self.is_favorited)
 
     def update_style(self):
         bg_color = "rgba(42, 130, 218, 0.3)" if self.is_selected else ("rgba(255, 255, 255, 0.03)" if (self.is_dark and self.is_even) else "rgba(0, 0, 0, 0.03)" if self.is_even else "transparent")
@@ -96,9 +114,17 @@ class SoundItemWidget(QFrame):
             self.btn_download.setVisible(True)
             self.download_progress.setVisible(False)
 
+    def set_favorited(self, favorited: bool):
+        self.is_favorited = favorited
+        icon_name = "heart-fill.png" if favorited else "heart.png"
+        tooltip = "Remove from favourites" if favorited else "Add to favourites"
+        self.btn_favorite.setIcon(get_icon(icon_name, color_invert=self.is_dark))
+        self.btn_favorite.setIconSize(QSize(14, 14))
+        self.btn_favorite.setToolTip(tooltip)
+
     def set_playing(self, playing: bool):
-        self.btn_play.setEnabled(not playing)
-        self.btn_play.setToolTip("Playing..." if playing else "Play")
+        self.btn_play.setIcon(get_icon("pause-fill.png" if playing else "play-fill.png", color_invert=self.is_dark))
+        self.btn_play.setToolTip("Pause" if playing else "Play")
 
     def set_downloading(self, downloading: bool, percent: int = 0):
         self.btn_download.setVisible(not downloading)
@@ -106,6 +132,9 @@ class SoundItemWidget(QFrame):
         self.download_progress.setValue(max(0, min(100, int(percent))))
         if downloading:
             self.download_progress.setFormat("")
+
+    def toggle_favorite(self):
+        self.favorite_requested.emit(self.item)
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
@@ -140,12 +169,15 @@ class SoundItemWidget(QFrame):
         menu.exec(event.globalPos())
 
 class InventoryItemWidget(QFrame):
+    favorite_requested = Signal(object)
+
     def __init__(self, file_path, parent_dialog, is_even=False):
         super().__init__()
         self.file_path = file_path
         self.parent_dialog = parent_dialog
         self.is_selected = False
         self.is_even = is_even
+        self.is_favorited = False
         self.setFrameShape(QFrame.NoFrame)
         
         self.is_dark = False
@@ -170,12 +202,25 @@ class InventoryItemWidget(QFrame):
         self.stack.addWidget(self.edit)
         layout.addWidget(self.stack, 1)
 
-        btn_play = QPushButton(" Play")
+        self.checkbox = QCheckBox()
+        self.checkbox.setVisible(True)
+        self.checkbox.setFocusPolicy(Qt.NoFocus)
+        self.checkbox.stateChanged.connect(self._on_checkbox_changed)
+        layout.addWidget(self.checkbox)
+
+        btn_play = QPushButton()
         btn_play.setIcon(get_icon("play-fill.png", color_invert=self.is_dark))
         btn_play.setIconSize(QSize(14, 14))
-        btn_play.setStyleSheet("padding: 4px 8px;")
+        btn_play.setFixedSize(32, 28)
+        btn_play.setToolTip("Play")
+        btn_play.setStyleSheet("padding: 2px;")
         btn_play.setFocusPolicy(Qt.NoFocus)
         btn_play.clicked.connect(self.play)
+
+        self.btn_favorite = QPushButton()
+        self.btn_favorite.setFixedSize(32, 28)
+        self.btn_favorite.setFocusPolicy(Qt.NoFocus)
+        self.btn_favorite.clicked.connect(self.toggle_favorite)
         
         btn_rename = QPushButton(" Rename")
         btn_rename.setIcon(get_icon("cursor-text.png", color_invert=self.is_dark))
@@ -192,8 +237,10 @@ class InventoryItemWidget(QFrame):
         btn_delete.clicked.connect(self.delete)
         
         layout.addWidget(btn_play)
+        layout.addWidget(self.btn_favorite)
         layout.addWidget(btn_rename)
         layout.addWidget(btn_delete)
+        self.set_favorited(self.parent_dialog.parent_app.is_favorite_title(self.file_path.stem))
 
     def update_style(self):
         bg_color = "rgba(42, 130, 218, 0.3)" if self.is_selected else ("rgba(255, 255, 255, 0.03)" if (self.is_dark and self.is_even) else "rgba(0, 0, 0, 0.03)" if self.is_even else "transparent")
@@ -214,19 +261,61 @@ class InventoryItemWidget(QFrame):
         super().mouseDoubleClickEvent(event)
 
     def play(self):
-        threading.Thread(target=self._play_thread, daemon=True).start()
+        if hasattr(self.parent_dialog, "play_file"):
+            self.parent_dialog.play_file(self)
+        else:
+            threading.Thread(target=self._play_thread, daemon=True).start()
 
     def _play_thread(self):
         try:
             from playsound import playsound
-            playsound(str(self.file_path))
-        except Exception as e:
-            print(f"Play error: {e}")
+            file_path = self.file_path.resolve()
+            if not file_path.exists():
+                raise FileNotFoundError(file_path)
+            playsound(str(file_path))
+        except Exception:
+            pass
 
     def delete(self):
-        if QMessageBox.question(self, "Delete", f"Delete {self.file_path.name}?") == QMessageBox.Yes:
-            self.file_path.unlink()
+        try:
+            if not self.file_path.exists():
+                raise FileNotFoundError(self.file_path)
+            if QMessageBox.question(self, "Delete", f"Delete {self.file_path.name}?") == QMessageBox.Yes:
+                self.file_path.unlink()
+                self.parent_dialog.refresh()
+        except FileNotFoundError:
+            QMessageBox.warning(self, "Delete", "The file could not be found. It may have been moved or deleted.")
             self.parent_dialog.refresh()
+        except OSError as exc:
+            QMessageBox.warning(self, "Delete", friendly_error_message(exc, context="Delete failed"))
+
+    def set_favorited(self, favorited: bool):
+        self.is_favorited = favorited
+        icon_name = "heart-fill.png" if favorited else "heart.png"
+        tooltip = "Remove from favourites" if favorited else "Add to favourites"
+        self.btn_favorite.setIcon(get_icon(icon_name, color_invert=self.is_dark))
+        self.btn_favorite.setIconSize(QSize(14, 14))
+        self.btn_favorite.setToolTip(tooltip)
+
+    def toggle_favorite(self):
+        self.favorite_requested.emit(self.file_path.stem)
+
+    def is_checked(self):
+        return self.checkbox.isChecked()
+
+    def set_checked(self, checked: bool):
+        from PySide6.QtCore import QSignalBlocker
+        blocker = QSignalBlocker(self.checkbox)
+        self.checkbox.setChecked(checked)
+        del blocker
+        self.update_style()
+        if hasattr(self.parent_dialog, "update_selection_actions"):
+            self.parent_dialog.update_selection_actions()
+
+    def _on_checkbox_changed(self, _state):
+        self.update_style()
+        if hasattr(self.parent_dialog, "update_selection_actions"):
+            self.parent_dialog.update_selection_actions()
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
@@ -264,11 +353,23 @@ class InventoryItemWidget(QFrame):
         self.stack.setCurrentIndex(0)
         new_name = self.edit.text().strip()
         if new_name and new_name != self.file_path.stem:
-            new_path = self.file_path.with_name(f"{sanitize_title(new_name)}.mp3")
-            if not new_path.exists():
-                self.file_path.rename(new_path)
-                self.file_path = new_path
-                self.label.setText(self.file_path.stem)
-            else:
-                QMessageBox.warning(self, "Rename", "File already exists.")
+            try:
+                if not self.file_path.exists():
+                    raise FileNotFoundError(self.file_path)
+                new_path = self.file_path.with_name(f"{sanitize_title(new_name)}.mp3")
+                if not new_path.exists():
+                    self.file_path.rename(new_path)
+                    self.file_path = new_path
+                    self.label.setText(self.file_path.stem)
+                    if hasattr(self.parent_dialog, "refresh"):
+                        self.parent_dialog.refresh()
+                else:
+                    QMessageBox.warning(self, "Rename", "File already exists.")
+                    self.edit.setText(self.file_path.stem)
+            except FileNotFoundError:
+                QMessageBox.warning(self, "Rename", "The file could not be found. It may have been moved or deleted.")
+                if hasattr(self.parent_dialog, "refresh"):
+                    self.parent_dialog.refresh()
+            except OSError as exc:
+                QMessageBox.warning(self, "Rename", friendly_error_message(exc, context="Rename failed"))
                 self.edit.setText(self.file_path.stem)

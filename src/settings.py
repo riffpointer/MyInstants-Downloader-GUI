@@ -6,11 +6,13 @@ def load_settings() -> dict:
         "download_dir": str(DEFAULT_DOWNLOAD_DIR),
         "appearance_mode": "Dark",
         "hide_downloaded": True,
+        "autoskip_downloaded_pages": True,
         "server_region": DEFAULT_REGION,
         "server_base_url": DEFAULT_BASE_URL,
         "auto_download_next_page": False,
         "concurrent_downloads": 5,
-        "search_history": []
+        "search_history": [],
+        "favorites": [],
     }
     if not APP_SETTINGS_FILE.exists():
         return default_settings

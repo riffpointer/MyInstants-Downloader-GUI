@@ -1,6 +1,7 @@
 import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 def ensure_directory(path: Path):
     path.mkdir(parents=True, exist_ok=True)
@@ -27,3 +28,18 @@ def format_bytes(num_bytes: float) -> str:
 
 def format_speed(num_bytes: float) -> str:
     return f"{format_bytes(num_bytes)}/s"
+
+def friendly_error_message(error: object, *, context: Optional[str] = None) -> str:
+    message = str(error).strip() or "Unknown error"
+    lower = message.lower()
+
+    if isinstance(error, FileNotFoundError) or "no such file" in lower or "file not found" in lower:
+        return f"{context + ': ' if context else ''}The file could not be found. It may have been moved or deleted."
+
+    if isinstance(error, PermissionError) or "permission denied" in lower or "access is denied" in lower:
+        return f"{context + ': ' if context else ''}Permission was denied."
+
+    if "timed out" in lower or "timeout" in lower:
+        return f"{context + ': ' if context else ''}The operation timed out."
+
+    return f"{context + ': ' if context else ''}{message}"
