@@ -13,7 +13,11 @@ A Qt-based GUI utility to play and download sounds from [myinstants.com](https:/
 - Added settings for download folder, theme, and concurrent download count.
 - Improved search behavior, empty states, and focus handling across dialogs.
 
-## Run
+## ⚠ IMPORTANT
+> [!WARNING]
+> It is recommended to turn down the volume of the application to somewhat low level because some sounds of myinstants.com are extremely loud and can literally kill you so consider lowering the volume first and then start using it 🤓
+
+## Running it
 For now, executable files are published for Windows only. But you can run it manually by cloning the repo, installing the dependencies from `requirements.txt`, and running the program manually with `py main.py`.
 
 ### Portable ZIP
@@ -30,8 +34,9 @@ Download the latest installer from the Releases page and run it normally.
 - `scripts/build_exe.py` builds the packaged app.
 - PyInstaller outputs are written to `scripts/build/` and `scripts/dist/`.
 
-## Notes
-- Downloaded files are saved in the `downloads` folder next to the app.
+## Tips
+- Downloaded files can be found in `downloads` folder present in the directory where files were extracted. (The one contaning the .exe file of this app.
+- You can choose a custom download location either from settings or the inventory window.
 - The inventory window shows saved files and supports rename/delete actions.
 - (Coming soon) You can drag and drop sound effects from within the inventory window.
 - (Coming soon) Support for more services.
@@ -40,6 +45,12 @@ Download the latest installer from the Releases page and run it normally.
 Main screen:
 
 <img width="1366" height="728" alt="image" src="https://github.com/user-attachments/assets/0b55c19c-de55-4343-bae6-9ea76aa4cea1" />
+
+## Libraries Used.
+- `PySide6` for GUI
+- Beautiful Soup for web scraping
+- Python Requests for HTML extraction and file download.
+- `playsound` library for playing sounds.
 
 ## License
 Licensed under the MIT License.
