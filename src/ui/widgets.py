@@ -2,7 +2,7 @@ import os
 import threading
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QMenu, QApplication, QInputDialog, QLineEdit, QMessageBox,
-    QStackedWidget
+    QStackedWidget, QProgressBar
 )
 from PySide6.QtCore import Signal, Qt, QSize
 from .theme import get_icon
@@ -33,26 +33,41 @@ class SoundItemWidget(QFrame):
         self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; background: transparent;")
         if is_downloaded:
             self.title_label.setStyleSheet(self.title_label.styleSheet() + "color: #22b573;")
-            
-        layout.addWidget(self.title_label, 1)
 
-        self.btn_play = QPushButton(" Play")
+        self.btn_play = QPushButton()
         self.btn_play.setIcon(get_icon("play-fill.png", color_invert=self.is_dark))
         self.btn_play.setIconSize(QSize(14, 14))
-        self.btn_play.setStyleSheet("padding: 4px 8px;")
+        self.btn_play.setToolTip("Play")
+        self.btn_play.setFixedSize(32, 28)
+        self.btn_play.setStyleSheet("padding: 2px;")
+        self.btn_play.setFocusPolicy(Qt.NoFocus)
         self.btn_play.clicked.connect(lambda: self.play_requested.emit(self.item))
         
         self.btn_download = QPushButton(" Download")
         self.btn_download.setIcon(get_icon("download.png", color_invert=self.is_dark))
         self.btn_download.setIconSize(QSize(14, 14))
         self.btn_download.setStyleSheet("padding: 4px 8px;")
+        self.btn_download.setFocusPolicy(Qt.NoFocus)
         self.btn_download.clicked.connect(lambda: self.download_requested.emit(self.item))
         if is_downloaded:
             self.btn_download.setEnabled(False)
             self.btn_download.setText(" Saved")
-            
+
+        self.download_progress = QProgressBar()
+        self.download_progress.setRange(0, 100)
+        self.download_progress.setValue(0)
+        self.download_progress.setTextVisible(False)
+        self.download_progress.setFixedHeight(28)
+        self.download_progress.setVisible(False)
+        self.download_progress.setStyleSheet(
+            "QProgressBar { border: 1px solid rgba(120, 120, 120, 0.35); border-radius: 6px; background: rgba(120, 120, 120, 0.12); }"
+            "QProgressBar::chunk { border-radius: 6px; background: #4d9fff; }"
+        )
+
         layout.addWidget(self.btn_play)
+        layout.addWidget(self.title_label, 1)
         layout.addWidget(self.btn_download)
+        layout.addWidget(self.download_progress)
 
     def update_style(self):
         bg_color = "rgba(42, 130, 218, 0.3)" if self.is_selected else ("rgba(255, 255, 255, 0.03)" if (self.is_dark and self.is_even) else "rgba(0, 0, 0, 0.03)" if self.is_even else "transparent")
@@ -72,10 +87,25 @@ class SoundItemWidget(QFrame):
             self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #22b573; background: transparent;")
             self.btn_download.setEnabled(False)
             self.btn_download.setText(" Saved")
+            self.btn_download.setVisible(True)
+            self.download_progress.setVisible(False)
         else:
             self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; background: transparent;")
             self.btn_download.setEnabled(True)
             self.btn_download.setText(" Download")
+            self.btn_download.setVisible(True)
+            self.download_progress.setVisible(False)
+
+    def set_playing(self, playing: bool):
+        self.btn_play.setEnabled(not playing)
+        self.btn_play.setToolTip("Playing..." if playing else "Play")
+
+    def set_downloading(self, downloading: bool, percent: int = 0):
+        self.btn_download.setVisible(not downloading)
+        self.download_progress.setVisible(downloading)
+        self.download_progress.setValue(max(0, min(100, int(percent))))
+        if downloading:
+            self.download_progress.setFormat("")
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
@@ -104,6 +134,7 @@ class SoundItemWidget(QFrame):
             
         menu.addSeparator()
         copy_url_act = menu.addAction("Copy URL")
+        copy_url_act.setIcon(get_icon("link-45deg.png", color_invert=self.is_dark))
         copy_url_act.triggered.connect(lambda: QApplication.clipboard().setText(self.item["url"]))
         
         menu.exec(event.globalPos())
@@ -143,18 +174,21 @@ class InventoryItemWidget(QFrame):
         btn_play.setIcon(get_icon("play-fill.png", color_invert=self.is_dark))
         btn_play.setIconSize(QSize(14, 14))
         btn_play.setStyleSheet("padding: 4px 8px;")
+        btn_play.setFocusPolicy(Qt.NoFocus)
         btn_play.clicked.connect(self.play)
         
         btn_rename = QPushButton(" Rename")
         btn_rename.setIcon(get_icon("cursor-text.png", color_invert=self.is_dark))
         btn_rename.setIconSize(QSize(14, 14))
         btn_rename.setStyleSheet("padding: 4px 8px;")
+        btn_rename.setFocusPolicy(Qt.NoFocus)
         btn_rename.clicked.connect(self.rename)
 
         btn_delete = QPushButton(" Delete")
         btn_delete.setIcon(get_icon("trash3.png", color_invert=self.is_dark))
         btn_delete.setIconSize(QSize(14, 14))
         btn_delete.setStyleSheet("padding: 4px 8px;")
+        btn_delete.setFocusPolicy(Qt.NoFocus)
         btn_delete.clicked.connect(self.delete)
         
         layout.addWidget(btn_play)
@@ -215,6 +249,7 @@ class InventoryItemWidget(QFrame):
         
         menu.addSeparator()
         copy_path_act = menu.addAction("Copy Path")
+        copy_path_act.setIcon(get_icon("link-45deg.png", color_invert=self.is_dark))
         copy_path_act.triggered.connect(lambda: QApplication.clipboard().setText(str(self.file_path.resolve())))
         
         menu.exec(event.globalPos())

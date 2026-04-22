@@ -1,22 +1,22 @@
 import os
-import threading
 from pathlib import Path
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QLineEdit, QScrollArea, QFrame, QMessageBox, QMenu, QApplication, QInputDialog,
-    QStackedWidget, QProgressBar
+    QStackedWidget, QProgressBar, QCompleter, QMenuBar
 )
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QStringListModel, QTimer
 
 from .theme import get_icon, apply_dark_theme, apply_light_theme
 from .widgets import SoundItemWidget
-from .dialogs import BatchDownloadDialog, SettingsDialog, InventoryDialog, AboutDialog
+from .dialogs import BatchDownloadDialog, SettingsDialog, InventoryDialog, AboutDialog, AutoNextPageDialog
 from ..constants import APP_TITLE, DEFAULT_REGION, DEFAULT_BASE_URL
 from ..settings import load_settings, save_settings
 from ..utils import ensure_directory, target_path_for, sanitize_title
 from ..workers.scrape_worker import ScrapeWorker
 from ..workers.download_worker import DownloadWorker
+from ..workers.playback_worker import PlaybackWorker
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -28,7 +28,10 @@ class MainWindow(QMainWindow):
         self.current_page = 1
         self.current_items = []
         self.active_workers = []
+        self.active_playback_workers = []
         self.selected_widget = None
+        self.auto_next_page_dialog = None
+        self.is_auto_downloading = False
         
         self.setup_ui()
         self.setup_menu()
@@ -39,6 +42,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_TITLE)
         self.resize(1200, 800)
         self.setWindowIcon(get_icon("main.ico"))
+        
+        is_dark = self.settings.get("appearance_mode", "Dark") in ["Dark", "System"]
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -80,6 +85,22 @@ class MainWindow(QMainWindow):
         self.search_entry.setPlaceholderText("Search sounds...")
         search_icon = get_icon("search.png", color_invert=is_dark)
         self.search_entry.addAction(search_icon, QLineEdit.LeadingPosition)
+        
+        self.clear_action = QAction()
+        self.clear_action.setIcon(get_icon("x-lg.png", color_invert=is_dark))
+        self.clear_action.triggered.connect(self.clear_search)
+        self._clear_action_visible = False
+        self.search_entry.textChanged.connect(self.update_search_clear_button)
+        
+        # Autocomplete
+        self.search_history = self.settings.get("search_history", [])
+        self.completer = QCompleter()
+        self.completer_model = QStringListModel(self.search_history)
+        self.completer.setModel(self.completer_model)
+        self.completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.completer.setFilterMode(Qt.MatchContains)
+        self.search_entry.setCompleter(self.completer)
+
         self.search_entry.returnPressed.connect(self.search)
         self.btn_search = QPushButton(" Search")
         self.btn_search.setStyleSheet("padding: 4px 8px;")
@@ -87,6 +108,7 @@ class MainWindow(QMainWindow):
         
         self.toolbar_layout.addWidget(self.search_entry)
         self.toolbar_layout.addWidget(self.btn_search)
+        self.update_search_clear_button(self.search_entry.text())
         
         self.layout.addWidget(self.toolbar)
         
@@ -127,29 +149,46 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
     def setup_menu(self):
-        menubar = self.menuBar()
+        menubar = QMenuBar(self)
+        menubar.setNativeMenuBar(False)
+        self.setMenuBar(menubar)
+        is_dark = self.settings.get("appearance_mode", "Dark") in ["Dark", "System"]
         
         file_menu = menubar.addMenu("&File")
         act_download_all = file_menu.addAction("Download All Current")
+        act_download_all.setIcon(get_icon("download.png", color_invert=is_dark))
         act_download_all.triggered.connect(self.download_all)
+        
         act_inventory = file_menu.addAction("Inventory")
+        act_inventory.setIcon(get_icon("box2-fill.png", color_invert=is_dark))
         act_inventory.triggered.connect(self.open_inventory)
+        
         act_settings = file_menu.addAction("Settings")
+        act_settings.setIcon(get_icon("gear-fill.png", color_invert=is_dark))
         act_settings.triggered.connect(self.open_settings)
+        
         file_menu.addSeparator()
         act_exit = file_menu.addAction("Exit")
+        act_exit.setIcon(get_icon("x-lg.png", color_invert=is_dark))
         act_exit.triggered.connect(self.close)
 
         navigate_menu = menubar.addMenu("&Navigate")
         act_trending = navigate_menu.addAction("Back To Trending")
+        act_trending.setIcon(get_icon("house-door.png", color_invert=is_dark))
         act_trending.triggered.connect(lambda: self.load_page(1))
+        
         navigate_menu.addSeparator()
         act_prev = navigate_menu.addAction("Previous Page")
+        act_prev.setIcon(get_icon("arrow-left.png", color_invert=is_dark))
         act_prev.triggered.connect(self.prev_page)
+        
         act_next = navigate_menu.addAction("Next Page")
+        act_next.setIcon(get_icon("arrow-right.png", color_invert=is_dark))
         act_next.triggered.connect(self.next_page)
+        
         navigate_menu.addSeparator()
         act_reload = navigate_menu.addAction("Reload Current View")
+        act_reload.setIcon(get_icon("arrow-counterclockwise.png", color_invert=is_dark))
         act_reload.triggered.connect(self.reload_current_view)
 
         view_menu = menubar.addMenu("&View")
@@ -162,6 +201,7 @@ class MainWindow(QMainWindow):
 
         help_menu = menubar.addMenu("&Help")
         act_about = help_menu.addAction("About")
+        act_about.setIcon(get_icon("question-circle.png", color_invert=is_dark))
         act_about.triggered.connect(self.open_about)
 
     def apply_settings(self):
@@ -186,6 +226,9 @@ class MainWindow(QMainWindow):
             
         self.update_icons(is_dark)
         self.render_items(self.current_items)
+        
+        # Refresh menu icons
+        self.setup_menu()
 
     def update_icons(self, is_dark):
         self.setWindowIcon(get_icon("main.ico"))
@@ -194,6 +237,24 @@ class MainWindow(QMainWindow):
         self.btn_prev.setIcon(get_icon("arrow-left.png", color_invert=is_dark))
         self.btn_next.setIcon(get_icon("arrow-right.png", color_invert=is_dark))
         self.btn_search.setIcon(get_icon("search.png", color_invert=is_dark))
+        if hasattr(self, "clear_action"):
+            self.clear_action.setIcon(get_icon("x-lg.png", color_invert=is_dark))
+            self.update_search_clear_button(self.search_entry.text())
+
+    def update_search_clear_button(self, text):
+        if not hasattr(self, "clear_action"):
+            return
+        has_text = bool(text)
+        if has_text and not self._clear_action_visible:
+            self.search_entry.addAction(self.clear_action, QLineEdit.TrailingPosition)
+            self._clear_action_visible = True
+        elif not has_text and self._clear_action_visible:
+            self.search_entry.removeAction(self.clear_action)
+            self._clear_action_visible = False
+
+    def clear_search(self):
+        self.search_entry.clear()
+        self.load_page(self.current_page)
 
     def load_page(self, page_number):
         self.statusBar().showMessage(f"Loading page {page_number}...")
@@ -214,6 +275,16 @@ class MainWindow(QMainWindow):
         query = self.search_entry.text().strip()
         if not query: return
         
+        # Update history
+        if query in self.search_history:
+            self.search_history.remove(query)
+        self.search_history.insert(0, query)
+        self.search_history = self.search_history[:50] # Limit to 50 items
+        self.completer_model.setStringList(self.search_history)
+        
+        self.settings["search_history"] = self.search_history
+        save_settings(self.settings)
+
         self.statusBar().showMessage(f"Searching for '{query}'...")
         self.stacked_widget.setCurrentWidget(self.loading_widget)
         
@@ -232,8 +303,13 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentWidget(self.scroll_area)
         
         if getattr(self, "is_auto_downloading", False):
-            if items:
+            if self.get_downloadable_items():
                 QTimer.singleShot(500, self.download_all)
+            elif items:
+                self.statusBar().showMessage(
+                    f"All sounds on page {self.current_page} are already downloaded. Loading next page..."
+                )
+                QTimer.singleShot(500, self.next_page)
             else:
                 self.is_auto_downloading = False
                 self.statusBar().showMessage("Auto-download finished (no more items).")
@@ -251,14 +327,38 @@ class MainWindow(QMainWindow):
             if widget: widget.deleteLater()
         
         hide_downloaded = self.settings.get("hide_downloaded", True)
+        shown_count = 0
+        
         for i, item in enumerate(items):
             is_downloaded = target_path_for(self.download_dir, item["title"]).exists()
             if hide_downloaded and is_downloaded:
                 continue
-            widget = SoundItemWidget(item, is_downloaded, parent_app=self, is_even=(i % 2 == 0))
+            widget = SoundItemWidget(item, is_downloaded, parent_app=self, is_even=(shown_count % 2 == 0))
             widget.play_requested.connect(self.play_sound)
             widget.download_requested.connect(self.download_item)
             self.list_layout.addWidget(widget)
+            shown_count += 1
+
+        if shown_count == 0:
+            is_dark = self.settings.get("appearance_mode", "Dark") in ["Dark", "System"]
+            
+            empty_container = QWidget()
+            empty_layout = QVBoxLayout(empty_container)
+            empty_layout.setAlignment(Qt.AlignCenter)
+            empty_layout.setSpacing(20)
+            empty_layout.setContentsMargins(0, 100, 0, 0)
+            
+            info_icon = QLabel()
+            info_icon.setPixmap(get_icon("info-circle-fill.png", color_invert=is_dark).pixmap(64, 64))
+            info_icon.setAlignment(Qt.AlignCenter)
+            
+            empty_label = QLabel("No items found matching your search.")
+            empty_label.setStyleSheet("font-size: 18px; color: #888; font-weight: bold;")
+            empty_label.setAlignment(Qt.AlignCenter)
+            
+            empty_layout.addWidget(info_icon)
+            empty_layout.addWidget(empty_label)
+            self.list_layout.addWidget(empty_container)
 
     def select_item(self, widget):
         if self.selected_widget:
@@ -299,43 +399,101 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def play_sound(self, item):
+        if not self.set_item_playing(item, True):
+            return
         self.statusBar().showMessage(f"Playing: {item['title']}")
-        threading.Thread(target=self._play_thread, args=(item['url'],), daemon=True).start()
 
-    def _play_thread(self, url):
-        try:
-            from playsound import playsound
-            playsound(url)
-        except Exception as e:
-            print(f"Play error: {e}")
+        worker = PlaybackWorker(item["url"])
+        worker.signals.finished.connect(lambda current=item, w=worker: self.on_playback_finished(current, w))
+        worker.signals.error.connect(lambda error, current=item, w=worker: self.on_playback_failed(current, error, w))
+        worker.start()
+        self.active_playback_workers.append(worker)
+
+    def set_item_playing(self, item, playing: bool):
+        for i in range(self.list_layout.count()):
+            widget = self.list_layout.itemAt(i).widget()
+            if isinstance(widget, SoundItemWidget) and widget.item["url"] == item["url"]:
+                if playing and not widget.btn_play.isEnabled():
+                    return False
+                widget.set_playing(playing)
+                return True
+        return False
+
+    def on_playback_finished(self, item, worker):
+        if worker in self.active_playback_workers:
+            self.active_playback_workers.remove(worker)
+        self.set_item_playing(item, False)
+        self.statusBar().showMessage(f"Finished playing: {item['title']}")
+
+    def on_playback_failed(self, item, error_msg, worker):
+        if worker in self.active_playback_workers:
+            self.active_playback_workers.remove(worker)
+        self.set_item_playing(item, False)
+        self.statusBar().showMessage(f"Play error: {error_msg}")
 
     def download_item(self, item):
         self.statusBar().showMessage(f"Downloading: {item['title']}...")
         worker = DownloadWorker(item, self.download_dir)
-        worker.signals.finished.connect(lambda msg: self.statusBar().showMessage(msg))
-        worker.signals.finished.connect(self.refresh_item_states)
-        worker.signals.error.connect(self.on_error)
+        worker.signals.progress.connect(
+            lambda data, current=item: self.update_download_progress(current, data)
+        )
+        worker.signals.finished.connect(
+            lambda msg, current=item, w=worker: self.on_download_finished(current, msg, w)
+        )
+        worker.signals.error.connect(
+            lambda err, current=item, w=worker: self.on_download_failed(current, err, w)
+        )
+        self.set_item_downloading(item, True, 0)
         worker.start()
         self.active_workers.append(worker)
+
+    def set_item_downloading(self, item, downloading: bool, percent: int = 0):
+        for i in range(self.list_layout.count()):
+            widget = self.list_layout.itemAt(i).widget()
+            if isinstance(widget, SoundItemWidget) and widget.item["url"] == item["url"]:
+                widget.set_downloading(downloading, percent)
+                return True
+        return False
+
+    def update_download_progress(self, item, data):
+        self.set_item_downloading(item, True, int(data.get("percent", 0) * 100))
+
+    def on_download_finished(self, item, msg, worker):
+        if worker in self.active_workers:
+            self.active_workers.remove(worker)
+        self.set_item_downloading(item, False, 100)
+        self.statusBar().showMessage(msg)
+        self.refresh_item_states()
+
+    def on_download_failed(self, item, err, worker):
+        if worker in self.active_workers:
+            self.active_workers.remove(worker)
+        self.set_item_downloading(item, False, 0)
+        self.on_error(err)
 
     def download_all(self):
         if not self.current_items:
             self.is_auto_downloading = False
             return
-            
-        selected_items = []
-        all_shown_items = []
-        for i in range(self.list_layout.count()):
-            widget = self.list_layout.itemAt(i).widget()
-            if isinstance(widget, SoundItemWidget) and widget.btn_download.isEnabled():
-                all_shown_items.append(widget.item)
-                if widget.is_selected:
-                    selected_items.append(widget.item)
 
-        items_to_download = selected_items if selected_items else all_shown_items
+        items_to_download = self.get_downloadable_items()
 
         if not items_to_download:
             self.is_auto_downloading = False
+            if self.current_mode == "page" and self.current_items:
+                next_page = self.current_page + 1
+                choice = QMessageBox.question(
+                    self,
+                    "All Downloaded",
+                    f"All sounds on page {self.current_page} are already downloaded.\n\n"
+                    f"Do you want to find and download the next page with undownloaded sounds starting from page {next_page}?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes,
+                )
+                if choice == QMessageBox.Yes:
+                    self.is_auto_downloading = True
+                    self.statusBar().showMessage(f"Searching for undownloaded sounds from page {next_page}...")
+                    self.next_page()
             return
 
         dialog = BatchDownloadDialog(self, items_to_download, self.download_dir)
@@ -347,9 +505,43 @@ class MainWindow(QMainWindow):
             import random
             delay = random.randint(5000, 10000)
             self.statusBar().showMessage(f"Auto-downloading next page in {delay//1000} seconds...")
-            QTimer.singleShot(delay, self.next_page)
+            if self.auto_next_page_dialog is not None:
+                self.auto_next_page_dialog.close()
+                self.auto_next_page_dialog = None
+
+            countdown_triggered = False
+
+            def start_next_page():
+                nonlocal countdown_triggered
+                countdown_triggered = True
+                self.auto_next_page_dialog = None
+                self.next_page()
+
+            def clear_auto_next_page_dialog(_result):
+                self.auto_next_page_dialog = None
+                if countdown_triggered or not getattr(self, "is_auto_downloading", False):
+                    return
+                self.is_auto_downloading = False
+                self.statusBar().showMessage("Auto-download cancelled.")
+
+            self.auto_next_page_dialog = AutoNextPageDialog(self, delay, start_next_page)
+            self.auto_next_page_dialog.finished.connect(clear_auto_next_page_dialog)
+            self.auto_next_page_dialog.show()
+            self.auto_next_page_dialog.raise_()
+            self.auto_next_page_dialog.activateWindow()
         else:
             self.is_auto_downloading = False
+
+    def get_downloadable_items(self):
+        selected_items = []
+        all_shown_items = []
+        for i in range(self.list_layout.count()):
+            widget = self.list_layout.itemAt(i).widget()
+            if isinstance(widget, SoundItemWidget) and widget.btn_download.isEnabled():
+                all_shown_items.append(widget.item)
+                if widget.is_selected:
+                    selected_items.append(widget.item)
+        return selected_items if selected_items else all_shown_items
 
     def open_inventory(self):
         dialog = InventoryDialog(self)

@@ -9,6 +9,8 @@ def load_settings() -> dict:
         "server_region": DEFAULT_REGION,
         "server_base_url": DEFAULT_BASE_URL,
         "auto_download_next_page": False,
+        "concurrent_downloads": 5,
+        "search_history": []
     }
     if not APP_SETTINGS_FILE.exists():
         return default_settings

@@ -1,5 +1,5 @@
 from PySide6.QtCore import QThread, QObject, Signal
-from bsoup_test import getPage, searchq
+from .scraper import getPage, searchq
 from ..constants import DEFAULT_REGION, DEFAULT_BASE_URL
 
 class WorkerSignals(QObject):

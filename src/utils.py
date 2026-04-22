@@ -1,8 +1,13 @@
 import re
+import sys
 from pathlib import Path
 
 def ensure_directory(path: Path):
     path.mkdir(parents=True, exist_ok=True)
+
+def resource_path(name: str) -> Path:
+    base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return base_dir / "resources" / name
 
 def sanitize_title(title: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*]', "_", title).strip()

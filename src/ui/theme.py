@@ -1,7 +1,7 @@
 from PySide6.QtGui import QPalette, QColor, QIcon, QPixmap
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QStyleFactory
-from pathlib import Path
+from ..utils import resource_path
 
 def apply_dark_theme(app):
     app.setStyle("Fusion")
@@ -28,7 +28,7 @@ def apply_light_theme(app):
     app.setPalette(palette)
 
 def get_icon(name, color_invert=False):
-    path = Path(f"resources/{name}")
+    path = resource_path(name)
     if not path.exists():
         return QIcon()
     pixmap = QPixmap(str(path))
